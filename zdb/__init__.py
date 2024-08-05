@@ -3,3 +3,4 @@
 
 from .disk import *
 from .nvlist import *
+from .vdev import *

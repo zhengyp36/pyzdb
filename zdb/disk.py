@@ -19,10 +19,19 @@ class Disk(core.Disk):
     
     @property
     def is_zfs(self):
-        for i in range(self.LABEL_NUM):
-            if self._is_valid_label(i):
-                return True
-        return False
+        return self.pickup_label_nvpairs() is not None
+    
+    def pickup_label_nvpairs(self, label_index=None):
+        if label_index is not None:
+            indexes = [label_index]
+        else:
+            indexes = range(self.LABEL_NUM)
+        
+        for i in indexes:
+            nvl = self._parse_label_nvpairs(label_index=i)
+            if nvl:
+                return nvl
+        return None
     
     def read_label(self, label_index=0):
         return self.read(self._label_off(label_index), self.LABEL_SIZE)
@@ -48,15 +57,15 @@ class Disk(core.Disk):
     def _uberblock_off(self, label_index):
         return self._label_off(label_index) + self.UBERBLOCK_OFF
     
-    def _is_valid_label(self, label_index):
+    def _parse_label_nvpairs(self, label_index):
         try:
             nvl = nvlist.NVList.parse(self.read_nvpair(label_index))
             for n in self.NVPAIR_KEYS:
                 if n not in nvl:
-                    return False
-            return True
+                    return None
+            return nvl
         except:
-            return False
+            return None
     
     LABEL_SIZE,LABEL_NUM = 256*1024,4
     NVPAIR_OFF,NVPAIR_LEN = 16*1024, (128-16)*1024
