@@ -17,6 +17,13 @@ class Disk(core.Disk):
     def capacity(self):
         return utils.StorageSize(self._capacity)
     
+    @property
+    def is_zfs(self):
+        for i in range(self.LABEL_NUM):
+            if self._is_valid_label(i):
+                return True
+        return False
+    
     def read_label(self, label_index=0):
         return self.read(self._label_off(label_index), self.LABEL_SIZE)
     
@@ -27,12 +34,12 @@ class Disk(core.Disk):
         return self.read(self._uberblock_off(label_index), self.UBERBLOCK_LEN)
     
     def _label_off(self, label_index):
-        assert(label_index in range(4))
-        assert(self._size > 4 * self.LABEL_SIZE)
+        assert(label_index in range(self.LABEL_NUM))
+        assert(self._size > self.LABEL_NUM * self.LABEL_SIZE)
         
         offset = self.LABEL_SIZE * label_index
-        if label_index >= 2:
-            offset += self._size - 4 * self.LABEL_SIZE
+        if label_index >= self.LABEL_NUM // 2:
+            offset += self._size - self.LABEL_NUM * self.LABEL_SIZE
         return offset
     
     def _nvpair_off(self, label_index):
@@ -41,7 +48,21 @@ class Disk(core.Disk):
     def _uberblock_off(self, label_index):
         return self._label_off(label_index) + self.UBERBLOCK_OFF
     
-    LABEL_SIZE = 256*1024
+    def _is_valid_label(self, label_index):
+        try:
+            nvl = nvlist.NVList.parse(self.read_nvpair(label_index))
+            for n in self.NVPAIR_KEYS:
+                if n not in nvl:
+                    return False
+            return True
+        except:
+            return False
+    
+    LABEL_SIZE,LABEL_NUM = 256*1024,4
     NVPAIR_OFF,NVPAIR_LEN = 16*1024, (128-16)*1024
     UBERBLOCK_OFF,UBERBLOCK_LEN = 128*1024, (256-128)*1024
     
+    NVPAIR_KEYS = [
+        'version', 'name', 'state', 'txg', 'pool_guid',
+        'top_guid', 'guid', 'vdev_children', 'vdev_tree'
+    ]

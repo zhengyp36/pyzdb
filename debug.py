@@ -16,6 +16,8 @@ if __name__ == '__main__':
     if not labels:
         labels = ['0']
     
+    print("Disk '%s' is zfs: %s" % (disk.path, disk.is_zfs))
+    
     for str_label_index in labels:
         label_index = int(str_label_index)
         print('#'*80)
