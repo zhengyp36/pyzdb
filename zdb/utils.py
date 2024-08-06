@@ -65,7 +65,7 @@ class StorageSize(object):
 
 class ByteParser(object):
     def __init__(self, buffer, endian='big'):
-        self.buffer = buffer
+        self.buffer = memoryview(buffer)
         self.endian = endian
         self.pos = 0
     
@@ -94,8 +94,8 @@ class ByteParser(object):
         return self._read_integer(size=8, signed=True)
     
     decode_str = staticmethod({
-        '2' : str,
-        '3' : lambda bin : bin.decode('utf-8')
+        '2' : lambda bin : str(bytearray(bin)),
+        '3' : lambda bin : bytearray(bin).decode('utf-8')
     }[sys.version[0]])
     
     def read_str(self, return_encode_size=False):
