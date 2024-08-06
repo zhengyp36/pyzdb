@@ -7,6 +7,9 @@ INTEGER_FORMATTER = {1:'B', 2:'H', 4:'I', 8:'Q'}
 INTEGER_SIZES = list(INTEGER_FORMATTER.keys())
 INTEGER_SIZES.sort()
 
+def int_to_endian(val):
+    return {0:'big',1:'little'}[val]
+
 def int_from_bytes(data, endian='little', signed=False):
     '''Convert bytes data to integer. Return the integer represented by
     the given array of bytes. The argument 'endian' should be 'little' or
@@ -28,9 +31,105 @@ def int_from_bytes(data, endian='little', signed=False):
     
     return struct.unpack(''.join([fmt_endian, fmt_sz]), data)[0]
 
+def read_u64(bin, offset=0, count=1, endian='little'):
+    bin,pos,r = memoryview(bin),offset,[]
+    while count > 0:
+        r.append(int_from_bytes(bin[pos:pos+8], endian=endian))
+        pos += 8
+        count -= 1
+    return r
+
 def roundup(num, base):
     num,base = int(num),int(base)
     return (num + base - 1) // base * base
+
+def bitfield_read(value, start, end):
+    length = end - start
+    mask = (1 << length) - 1
+    return (value >> start) & mask
+
+class HexInt(object):
+    def __init__(self, value=0):
+        self.value = value
+    
+    def __str__(self):
+        return hex(self.value)
+    
+    __repr__ = __str__
+
+class CStructField(object):
+    def __init__(self, name, szInU64, convert, formatter=None):
+        self.name = name
+        self.szInU64 = szInU64
+        self.convert = convert
+        
+        if isinstance(formatter,str):
+            self.formatter = lambda _ : formatter
+        elif callable(formatter):
+            self.formatter = formatter
+        else:
+            assert(formatter is None)
+            self.formatter = str
+
+class CStruct(object):
+    FIELDS,SIZE_U64 = [],0
+    
+    def __init__(self, bins=None, ints=None, endian='little'):
+        self.desc_order = []
+        self.desc = {}
+    
+    def setattr(self, name, value):
+        self.desc[name] = value
+        setattr(self, name, value)
+    
+    def setattrs_u64(self, data):
+        pos = 0
+        for field in self.FIELDS:
+            assert(field.name not in self.desc)
+            self.desc_order.append(field.name)
+            
+            self.setattr(
+                field.name,
+                field.convert(data[ pos : pos+field.szInU64 ])
+            )
+            
+            pos += field.szInU64
+    
+    def __str__(self):
+        output,keylen = [],max([ len(field.name) for field in self.FIELDS ])
+        output.append('{')
+        for field in self.FIELDS:
+            output.append('  %-*s : %s' % (
+                keylen, field.name,
+                field.formatter(self.desc[field.name])
+            ))
+        output.append('}')
+        return '\n'.join(output)
+    
+    __repr__ = __str__
+    
+    def __getitem__(self, key):
+        return self.desc[key]
+    
+    @classmethod
+    def count_offset(cls, target_field):
+        offset = 0
+        for field in self.FIELDS:
+            if field.name == target_field:
+                return offset
+            else:
+                offset += field.szInU64
+        return None
+    
+    @classmethod
+    def from_bins(cls, bins):
+        '''Convert from binary data'''
+        return cls(bins=bins)
+    
+    @classmethod
+    def from_ints(cls, ints, endian='little'):
+        '''Convert from integer data'''
+        return cls(ints=ints, endian=endian)
 
 class StorageSize(object):
     UNITS = [ "B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" ]
