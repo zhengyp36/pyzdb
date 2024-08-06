@@ -7,6 +7,7 @@ class VDev(object):
         self.desc = {}
         self.desc['type'] = type
         self.parent = parent
+        self.inst = None
         
         if parent is None:
             assert(type == 'root')
@@ -16,6 +17,65 @@ class VDev(object):
             self.top = self
         else:
             self.top = parent.top
+    
+    def get_root(self):
+        if self.is_root:
+            return self
+        elif self.is_top:
+            return self.parent
+        else:
+            return self.top.parent
+    
+    def get_top(self):
+        if self.is_root:
+            return None
+        elif self.is_top:
+            return self
+        else:
+            return self.top
+    
+    @property
+    def opened(self):
+        rvd = self.get_root()
+        return 'opened' in rvd.desc and rvd.desc['opened']
+    
+    def open(self):
+        if self.is_leaf:
+            return self.open_leaf()
+        
+        for child in self.desc['child']:
+            if child is None:
+                return False
+            
+            if not child.open():
+                return False
+        
+        if self.is_root:
+            self.desc['opened'] = True
+        return True
+    
+    def close(self):
+        if self.is_leaf:
+            return self.close_leaf()
+        else:
+            for child in self.desc['child']:
+                child.close()
+        
+        if self.is_root:
+            self.desc['opened'] = False
+    
+    def open_leaf(self):
+        if not self.inst:
+            self.inst = Disk(self.desc['path'])
+            assert(self.inst)
+            assert(self.inst.is_zfs)
+        else:
+            assert(isinstance(self.inst, Disk))
+        return True
+    
+    def close_leaf(self):
+        if self.inst:
+            self.inst = None
     
     def __getitem__(self, key):
         if key not in self.desc:

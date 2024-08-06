@@ -81,5 +81,11 @@ if __name__ == '__main__':
     elif options[0] == '-vdev':
         rvds = zdb.VDev.parse(args)
         for key in rvds:
-            print('#' * 10 + 'Dump rvd[%s] ...' % key)
+            print('#' * 10 + ' Dump rvd[%s] ...' % key)
             rvds[key].dump()
+            print('#' * 10 + ' Open rvd[%s] ...' % key)
+            if rvds[key].open() and rvds[key].opened:
+                print('Open success')
+            else:
+                print('Open failure')
+            print('')
