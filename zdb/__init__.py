@@ -6,3 +6,4 @@ from .nvlist    import *
 from .vdev      import *
 from .dmu       import *
 from .uberblock import *
+from .spa       import *

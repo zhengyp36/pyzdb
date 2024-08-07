@@ -26,7 +26,10 @@ class DVA(object):
     
     @property
     def gang(self):
-        return utils.bitfield_read(self.dva_word[1], 63, 64)
+        gang = utils.bitfield_read(self.dva_word[1], 63, 64)
+        if gang:
+            raise Exception('GANG not supported')
+        return gang
     
     @property
     def offset(self):
@@ -197,6 +200,15 @@ class BlkPtr(utils.CStruct):
     @property
     def endian(self):
         return utils.int_to_endian(self.blk_prop.endian)
+    
+    @property
+    def embeded(self):
+        return self.blk_prop.embeded
+    
+    @property
+    def dva_array(self):
+        assert(not self.embeded)
+        return [d for d in self.blk_dva if d.asize > 0]
     
     @classmethod
     def get_endian_from_bins(cls, bins):

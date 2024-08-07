@@ -34,6 +34,18 @@ class VDev(object):
         else:
             return self.top
     
+    def get_leaves(self):
+        leaves = []
+        self._get_leaves(leaves)
+        return leaves
+    
+    def _get_leaves(self, leaves):
+        if self.is_leaf:
+            leaves.append(self)
+        else:
+            for child in self.desc['child']:
+                child._get_leaves(leaves)
+    
     @property
     def opened(self):
         rvd = self.get_root()
@@ -123,9 +135,9 @@ class VDev(object):
     
     def add_child(self, nvp):
         id = nvp['id']
-        assert(id >= 0 and
-            id < self.desc['children'] and
-            self.desc['child'][id] is None)
+        assert(id >= 0 and id < self.desc['children'])
+        if self.desc['child'][id]:
+            return self.desc['child'][id]
         
         vd = self.desc['child'][id] = type(self)(parent=self, type=nvp['type'])
         vd.desc['guid'] = nvp['guid']
@@ -209,8 +221,9 @@ class VDev(object):
         return rvd
     
     @classmethod
-    def parse(cls, disk_list):
-        root_vdevs = {}
+    def parse(cls, disk_list, root_vdevs=None):
+        if root_vdevs is None:
+            root_vdevs = {}
         
         disks_saved = set()
         for path in disk_list:
