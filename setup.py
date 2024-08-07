@@ -14,10 +14,22 @@ setup(
         Extension(
             'core',
             include_dirs = abs_path([ 'inc' ]),
+            libraries = ['z'],
             sources = abs_path([
-                'src/disk.c',
                 'src/core.c',
+
+                # core.Disk
+                'src/disk.c',
                 'src/core_disk.c',
+
+                # core.Compressor
+                'src/compress/lzjb.c',
+                'src/compress/gzip.c',
+                'src/compress/zle.c',
+                'src/compress/lz4.c',
+                'src/compress/lz4_zfs.c',
+                'src/compress/zio_compress.c',
+                'src/core_compress.c',
             ]),
         )
     ]

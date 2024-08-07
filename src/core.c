@@ -18,14 +18,20 @@ static type_pair_t type_table[] = {
 static PyObject *
 zdbcore_init_impl(void)
 {
+	zdbcore_compress_init();
+
 	for (type_pair_t *tp = type_table; tp->name; tp++) {
-		if (PyType_Ready(tp->tp) < 0)
+		if (PyType_Ready(tp->tp) < 0) {
+			zdbcore_compress_fini();
 			return (NULL);
+		}
 	}
 
 	PyObject *m = create_module_impl();
-	if (!m)
+	if (!m) {
+		zdbcore_compress_fini();
 		return (NULL);
+	}
 
 	for (type_pair_t *tp = type_table; tp->name; tp++) {
 		Py_INCREF(tp->tp);
@@ -41,8 +47,38 @@ PyMODINIT_FUNC PyInit_core(void) { return (zdbcore_init_impl()); }
 PyMODINIT_FUNC initcore(void) { zdbcore_init_impl(); }
 #endif
 
+#define ZDBCORE_COMPRESS_DOC \
+"core.compress(compr_type, usr_data, compr_data) -> int\n\n" \
+"    compr_type : tell which algorithm to be used to compress data.\n" \
+"    usr_data   : an object of memoryview, storing data of user.\n" \
+"    compr_data : an writable object of memoryview with length shorter\n" \
+"                 than usr_data's, to store the compressed data.\n" \
+"    return-val : the length of compressed data in compr_data, shorter\n" \
+"                 than or equal to compr_data's.\n"
+
+#define ZDBCORE_DECOMPRESS_DOC \
+"core.decompress(compr_type, usr_data, compr_data) -> None\n\n" \
+"    compr_type : tell which algorithm to be used to decompress data.\n" \
+"    usr_data   : an writable object of memoryview, to store\n" \
+"                 decompressed data.\n" \
+"    compr_data : an object of memoryview, holding data to be decompressed.\n" \
+"    return-val : None.\n"
+
+static PyMethodDef zdbcore_methods[] = {
+	{
+		"compress",
+		zdbcore_compress,
+		METH_VARARGS,
+		ZDBCORE_COMPRESS_DOC
+	},{
+		"decompress",
+		zdbcore_decompress,
+		METH_VARARGS,
+		ZDBCORE_DECOMPRESS_DOC
+	}, {NULL}
+};
+
 #define ZDB_CORE_DOCS "core functions for zfs debugger"
-static PyMethodDef zdbcore_methods[] = {{NULL}};
 
 static PyObject *
 create_module_impl(void)

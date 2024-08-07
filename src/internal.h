@@ -20,4 +20,9 @@
 
 extern PyTypeObject zdbcore_DiskType;
 
+void zdbcore_compress_init(void);
+void zdbcore_compress_fini(void);
+PyObject *zdbcore_compress(PyObject *self, PyObject *args);
+PyObject *zdbcore_decompress(PyObject *self, PyObject *args);
+
 #endif // _PYTHON_INTERNAL_H
