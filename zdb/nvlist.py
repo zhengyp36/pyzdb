@@ -2,6 +2,7 @@
 
 from .utils import *
 
+@EnumType
 class NVLDT(object):
     '''NVLDT is nvlist-data-type'''
     TABLE = [
@@ -34,46 +35,6 @@ class NVLDT(object):
         [ 's8A',      'DATA_TYPE_INT8_ARRAY',    None ],
         [ 'u8A',      'DATA_TYPE_UINT8_ARRAY',   None ],
     ]
-    
-    @classmethod
-    def from_int(cls, value):
-        return cls.MEMBERS[int(value)]
-    
-    @classmethod
-    def from_str(cls, name):
-        return cls.MEMBERS[name]
-    
-    @property
-    def name(self):
-        return self._name
-    
-    @property
-    def value(self):
-        return self._value
-    
-    def __str__(self):
-        return self._enum_name
-    __repr__ = __str__
-    
-    @classmethod
-    def init_once(cls):
-        if not cls.MEMBERS:
-            v = -1
-            for n,e,_v in cls.TABLE:
-                if _v is not None:
-                    v = _v
-                else:
-                    v += 1
-                
-                inst = cls()
-                setattr(inst, '_name', n)
-                setattr(inst, '_enum_name', e)
-                setattr(inst, '_value', v)
-                
-                cls.MEMBERS[n] = cls.MEMBERS[e] = cls.MEMBERS[v] = inst
-                setattr(cls, n, inst)
-    MEMBERS = {}
-NVLDT.init_once()
 
 class NVList(object):
     NV_HEADER = [ 'encoding', 'host-endian', 'reserved' ]

@@ -1,7 +1,9 @@
 # -*- coding:utf-8 -*-
 
 from . import core
+from .utils import EnumType
 
+@EnumType
 class Compressor(object):
     '''Usage:
        1. compr_data = Compressor.<algorithm>.compress(usr_data)
@@ -9,43 +11,30 @@ class Compressor(object):
        3. Algorithm options [lzjb, gzip_<1~9>, lz4]
        4. Example: Compressor.lz4.compress(bytearray(1024))
     '''
-    ALGORITHM_TABLE = [
-        [  0, 'ZIO_COMPRESS_INHERIT', 'inherit', False ],
-        [  1, 'ZIO_COMPRESS_ON',      'on',      False ],
-        [  2, 'ZIO_COMPRESS_OFF',     'off',     False ],
-        [  3, 'ZIO_COMPRESS_LZJB',    'lzjb',    True  ],
-        [  4, 'ZIO_COMPRESS_EMPTY',   'empty',   False ],
-        [  5, 'ZIO_COMPRESS_GZIP_1',  'gzip_1',  True  ],
-        [  6, 'ZIO_COMPRESS_GZIP_2',  'gzip_2',  True  ],
-        [  7, 'ZIO_COMPRESS_GZIP_3',  'gzip_3',  True  ],
-        [  8, 'ZIO_COMPRESS_GZIP_4',  'gzip_4',  True  ],
-        [  9, 'ZIO_COMPRESS_GZIP_5',  'gzip_5',  True  ],
-        [ 10, 'ZIO_COMPRESS_GZIP_6',  'gzip_6',  True  ],
-        [ 11, 'ZIO_COMPRESS_GZIP_7',  'gzip_7',  True  ],
-        [ 12, 'ZIO_COMPRESS_GZIP_8',  'gzip_8',  True  ],
-        [ 13, 'ZIO_COMPRESS_GZIP_9',  'gzip_9',  True  ],
-        [ 14, 'ZIO_COMPRESS_ZLE',     'zle',     True  ],
-        [ 15, 'ZIO_COMPRESS_LZ4',     'lz4',     True  ],
-        [ 16, 'ZIO_COMPRESS_ZSTD',    'zstd',    False ],
+    
+    TABLE = [
+        [ 'inherit','ZIO_COMPRESS_INHERIT',  0, False ],
+        [ 'on',     'ZIO_COMPRESS_ON',       1, False ],
+        [ 'off',    'ZIO_COMPRESS_OFF',      2, False ],
+        [ 'lzjb',   'ZIO_COMPRESS_LZJB',     3, True  ],
+        [ 'empty',  'ZIO_COMPRESS_EMPTY',    4, False ],
+        [ 'gzip_1', 'ZIO_COMPRESS_GZIP_1',   5, True  ],
+        [ 'gzip_2', 'ZIO_COMPRESS_GZIP_2',   6, True  ],
+        [ 'gzip_3', 'ZIO_COMPRESS_GZIP_3',   7, True  ],
+        [ 'gzip_4', 'ZIO_COMPRESS_GZIP_4',   8, True  ],
+        [ 'gzip_5', 'ZIO_COMPRESS_GZIP_5',   9, True  ],
+        [ 'gzip_6', 'ZIO_COMPRESS_GZIP_6',  10, True  ],
+        [ 'gzip_7', 'ZIO_COMPRESS_GZIP_7',  11, True  ],
+        [ 'gzip_8', 'ZIO_COMPRESS_GZIP_8',  12, True  ],
+        [ 'gzip_9', 'ZIO_COMPRESS_GZIP_9',  13, True  ],
+        [ 'zle',    'ZIO_COMPRESS_ZLE',     14, True  ],
+        [ 'lz4',    'ZIO_COMPRESS_LZ4',     15, True  ],
+        [ 'zstd',   'ZIO_COMPRESS_ZSTD',    16, False ],
     ]
     
-    @classmethod
-    def ls(cls):
-        keylen = max([len(alg[2]) for alg in cls.ALGORITHM_TABLE])
-        print('\n'.join([
-            '%-*s : %2d' % (keylen,alg[2],alg[0])
-            for alg in cls.ALGORITHM_TABLE
-        ]))
-    
-    @classmethod
-    def get(cls, key):
-        if isinstance(key,str) and key in cls.name_table:
-            return cls.name_table[key]
-        else:
-            try:
-                return cls.value_table[int(key)]
-            except:
-                return None
+    def __init__(self, entry):
+        # 'entry' is an elemement of self.TABLE
+        self.supported = entry[3]
     
     def compress(self, usr_data):
         self.__check_supported()
@@ -66,38 +55,8 @@ class Compressor(object):
         
         return bytearray(usr_data)
     
-    name_table,value_table = {},{}
-    
-    def __init__(self, name, enum_name, enum_value, supported):
-        self.name = name
-        self.enum_name = enum_name
-        self.enum_value = enum_value
-        self.supported = supported
-    
     def __check_supported(self):
         if not self.supported:
-            raise Exception('%s is not supported' % str(compr_type))
-    
-    def __str__(self):
-        return self.name
-    __repr__ = __str__
-    
-    @classmethod
-    def init_once(cls):
-        if cls.name_table and cls.value_table:
-            return
-        
-        cls.name_table,cls.value_table = {},{}
-        for alg in cls.ALGORITHM_TABLE:
-            enum_value,enum_name,name,supported=alg
-            inst = cls(
-                name       = name,
-                enum_name  = enum_name,
-                enum_value = enum_value,
-                supported  = supported
-            )
-            cls.name_table[name] = cls.name_table[enum_name] = inst
-            cls.value_table[enum_value] = inst
-            setattr(cls, name, inst)
-
-Compressor.init_once()
+            raise Exception('%s<%s,%d> is unsupported' % (
+                str(self), repr(self), int(self)
+            ))

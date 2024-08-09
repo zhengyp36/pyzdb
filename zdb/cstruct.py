@@ -38,7 +38,7 @@ class BlkPtr(CStruct):
     # TODO: Is the method of reading by Endian right?
     #       Is the bit position of E in blkptr_t.blk_prop right?
     
-    dva_conv = DVA.convert_method(dva_count=3)
+    dva_conv = DVA.convert_method(count=3)
     dva_fmt  = lambda arr,_ : '[%s]' % ','.join([str(dva) for dva in arr])
     
     STRUCT_NAME = 'blkptr_t'
@@ -100,7 +100,6 @@ class BlkPtr(CStruct):
         
         assert(self.endian == Endian.from_int(self.E))
     
-    FIELDS_INITED = False
     @classmethod
     def _init_this_type(cls):
         if not cls.FIELDS_INITED:
@@ -113,6 +112,7 @@ class BlkPtr(CStruct):
                     f[3] = formatters[f[0]]
             
             cls.FIELDS_INITED = True
+    FIELDS_INITED = False
     
     @staticmethod
     def __blk_prop_formatter(value, inst):

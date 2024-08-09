@@ -2,6 +2,7 @@
 
 import sys
 import struct
+import inspect
 
 class MagicError(Exception):
     def __init__(self, source, value=None):
@@ -14,6 +15,96 @@ class MagicError(Exception):
         if self.value is not None:
             s += ', value={%s}' % str(self.value)
         return s
+
+def EnumType(TypeDef):
+    class TypeImplement(TypeDef):
+        def __init__(self, entry, enum_value):
+            def getargspec(method):
+                if sys.version[0] == '2':
+                    try:
+                        return inspect.getargspec(method).args
+                    except TypeError:
+                        return []
+                elif sys.version[0] == '3':
+                    return ([ 'self' ] + [ str(s) for s in
+                        inspect.signature(method).parameters.values()
+                        if str(s) not in ['*args','**kwargs']
+                    ])
+                else:
+                    raise Exception(
+                        'Unsupported Python version {%s}' % sys.version)
+            
+            args = getargspec(super(type(self),self).__init__)
+            if len(args) == 0: # __init__ not implemented
+                pass
+            elif len(args) == 1: # __init__(self)
+                super(type(self),self).__init__()
+            elif len(args) == 2: # __init__(self,entry)
+                super(type(self),self).__init__(entry)
+            elif len(args) == 3: # __init__(self,entry,enum_value)
+                super(type(self),self).__init__(entry, enum_value)
+            else: # __init__(??)
+                super(type(self),self).__init__(entry, enum_value)
+            
+            self._name      = entry[0]
+            self._enum_name = entry[1]
+            self._value     = enum_value
+        
+        def __str__(self):
+            return self._name
+        
+        def __repr__(self):
+            return self._enum_name
+        
+        def __int__(self):
+            return self._value
+        
+        @classmethod
+        def from_str(cls, name):
+            return cls.MEMBERS_DICT[str(name)]
+        
+        @classmethod
+        def from_int(cls, value):
+            return cls.MEMBERS_DICT[int(value)]
+        
+        @classmethod
+        def ls(cls):
+            l1 = max([len(i._name) for i in cls.MEMBERS_LIST])
+            l2 = max([len(i._enum_name) for i in cls.MEMBERS_LIST])
+            for inst in cls.MEMBERS_LIST:
+                print('%-*s : %-*s : %d' % (
+                    l1, inst._name, l2, inst._enum_name, inst._value
+                ))
+        
+        __doc__ = TypeDef.__doc__
+        MEMBERS_DICT,MEMBERS_LIST = {},[]
+    
+    v = -1
+    for entry in TypeDef.TABLE:
+        n,e,_v = entry[:3]
+        if _v is not None:
+            v = _v
+        else:
+            v += 1
+        
+        inst = TypeImplement(entry, v)
+        
+        TypeImplement.MEMBERS_LIST.append(inst)
+        TypeImplement.MEMBERS_DICT[n] = inst
+        TypeImplement.MEMBERS_DICT[e] = inst
+        TypeImplement.MEMBERS_DICT[v] = inst
+        
+        setattr(TypeImplement, n, inst)
+        setattr(TypeImplement, e, inst)
+    
+    return TypeImplement
+
+@EnumType
+class Endian(object):
+    TABLE = [
+        [ 'big',    'BIG',    0 ],
+        [ 'little', 'LITTLE', 1 ],
+    ]
 
 class StorageSize(object):
     KILOBYTE = 1024
@@ -45,35 +136,6 @@ class StorageSize(object):
             return ('%.2f' % sz) + self.UNITS[idx]
     
     __repr__ = __str__
-
-class Endian(object):
-    @classmethod
-    def from_int(cls, value):
-        return cls.MEMBERS[int(value)]
-    
-    @classmethod
-    def from_str(cls, name):
-        return cls.MEMBERS[name.lower()]
-    
-    @property
-    def value(self):
-        return self._value
-    
-    def __str__(self):
-        return self._name
-    __repr__ = __str__
-    
-    @classmethod
-    def init_once(cls):
-        if not cls.MEMBERS:
-            for n,v in [ ['big',0], ['little',1] ]:
-                inst = cls()
-                setattr(inst, '_name', n)
-                setattr(inst, '_value', v)
-                cls.MEMBERS[n] = cls.MEMBERS[v] = inst
-                setattr(cls, n, inst)
-    MEMBERS = {}
-Endian.init_once()
 
 class Int(object):
     FORMAT_ENDIAN = {
@@ -192,12 +254,12 @@ class CStruct(object):
     }
     
     @classmethod
-    def convert_method(cls, dva_count=1, verify=False):
+    def convert_method(cls, count=1, verify=False):
         def convert(bytes, endian=Endian.little):
             sz = cls.sizeof()
             if verify:
-                assert(sz * dva_count == len(bytes))
-            return [cls(bytes[i*sz:i*sz+sz]) for i in range(dva_count)]
+                assert(sz * count == len(bytes))
+            return [cls(bytes[i*sz:i*sz+sz]) for i in range(count)]
         return convert
     
     def __init__(self, bytes, endian=Endian.little):
