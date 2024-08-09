@@ -1,10 +1,10 @@
 #-*- coding:utf-8 -*-
 # package zdb - zfs debugger
 
-from .disk       import *
-from .nvlist     import *
-from .vdev       import *
-from .dmu        import *
-from .uberblock  import *
-from .spa        import *
-from .compressor import *
+from .utils         import *
+from .disk          import *
+from .compressor    import *
+from .cstruct       import *
+from .nvlist        import *
+from .vdev          import *
+from .spa           import *

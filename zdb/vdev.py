@@ -1,254 +1,212 @@
 # -*- coding:utf-8 -*-
 
-from .disk import Disk
+import os
+from .disk import *
+from .nvlist import *
+
+class VDevManager(object):
+    def __init__(self):
+        self.root_vdevs = {}
+        self.pool_names = {}
+    
+    def scan(self, disks=None):
+        if not disks:
+            devs = [ os.path.join('/dev',d)
+                for d in os.listdir('/dev') if d.startswith('sd') ]
+        else:
+            devs = disks[:]
+        
+        # TODO: need read other labels if failed
+        label_start, label_length = 16*1024, 112*1024
+        
+        for dev in devs:
+            try:
+                raw_data = Disk(dev).read(label_start, label_length)
+                nvlist = NVList.from_bytes(raw_data)
+            except:
+                continue
+            
+            rvd = VDev.make(nvlist, root_vdevs=self.root_vdevs)
+            if not rvd:
+                print('Add disk %s error.' % dev)
+        
+        for guid in self.root_vdevs:
+            rvd = self.root_vdevs[guid]
+            if rvd.name not in self.pool_names:
+                self.pool_names[rvd.name] = set()
+            self.pool_names[rvd.name].add(rvd.guid)
+    
+    def lookup(self, key):
+        if key in self.root_vdevs:
+            return self.root_vdevs[key]
+        else:
+            if key in self.pool_names:
+                guids = self.pool_names[key]
+                if len(guids) > 1:
+                    print("There are more than one pool with name '%s'" % key)
+                    print("Their guids are %s" % str(guids))
+                    return None
+                else:
+                    return self.root_vdevs[list(guids)[0]]
+            else:
+                return None
+    
+    def ls(self):
+        for guid in self.root_vdevs:
+            rvd = self.root_vdevs[guid]
+            rvd.dump_topo()
+            print('')
 
 class VDev(object):
-    def __init__(self, parent=None, type=None):
-        self.desc = {}
-        self.desc['type'] = type
-        self.parent = parent
-        self.inst = None
-        
-        if parent is None:
-            assert(type == 'root')
-            self.top = None
-        elif parent.top is None:
-            assert(parent.is_root)
-            self.top = self
-        else:
-            self.top = parent.top
-    
-    def get_root(self):
-        if self.is_root:
-            return self
-        elif self.is_top:
-            return self.parent
-        else:
-            return self.top.parent
-    
-    def get_top(self):
-        if self.is_root:
-            return None
-        elif self.is_top:
-            return self
-        else:
-            return self.top
-    
-    def get_leaves(self):
-        leaves = []
-        self._get_leaves(leaves)
-        return leaves
-    
-    def _get_leaves(self, leaves):
-        if self.is_leaf:
-            leaves.append(self)
-        else:
-            for child in self.desc['child']:
-                child._get_leaves(leaves)
-    
-    @property
-    def opened(self):
-        rvd = self.get_root()
-        return 'opened' in rvd.desc and rvd.desc['opened']
-    
-    def open(self):
-        if self.is_leaf:
-            return self.open_leaf()
-        
-        for child in self.desc['child']:
-            if child is None:
-                return False
-            
-            if not child.open():
-                return False
-        
-        if self.is_root:
-            self.desc['opened'] = True
-        return True
-    
-    def close(self):
-        if self.is_leaf:
-            return self.close_leaf()
-        else:
-            for child in self.desc['child']:
-                child.close()
-        
-        if self.is_root:
-            self.desc['opened'] = False
-    
-    def open_leaf(self):
-        if not self.inst:
-            self.inst = Disk(self.desc['path'])
-            assert(self.inst)
-            assert(self.inst.is_zfs)
-        else:
-            assert(isinstance(self.inst, Disk))
-        return True
-    
-    def close_leaf(self):
-        if self.inst:
-            self.inst = None
-    
-    def __getitem__(self, key):
-        if key not in self.desc:
-            raise KeyError("'%s' not found in the desc" % key)
-        return self.desc[key]
-    
-    @property
-    def is_top(self):
-        return self.top == self
-    
-    @property
-    def is_root(self):
-        return self.desc['type'] == 'root'
-    
-    @property
-    def is_leaf(self):
-        return  'children' not in self.desc
-    
-    @property
-    def children(self):
-        if self.is_leaf:
-            return None
-        else:
-            return self.desc['children']
-    
-    @property
-    def ready_children(self):
-        if self.is_leaf:
-            return None
-        else:
-            return self.desc['children'] - self.desc['child'].count(None)
-    
-    @property
-    def ready(self):
-        if self.is_leaf:
-            return self.desc['ready']
-        else:
-            # TODO: how to tell whether all children are ready?
-            return self.children == self.ready_children
-    
-    def init_children(self, children):
-        assert(children > 0)
-        self.desc['children'] = children
-        self.desc['child'] = [None] * children
-    
-    def add_child(self, nvp):
-        id = nvp['id']
-        assert(id >= 0 and id < self.desc['children'])
-        if self.desc['child'][id]:
-            return self.desc['child'][id]
-        
-        vd = self.desc['child'][id] = type(self)(parent=self, type=nvp['type'])
-        vd.desc['guid'] = nvp['guid']
-        vd.desc['id'] = id
-        
-        if 'path' in nvp:
-            vd.desc['path'] = nvp['path']
-        
-        if 'children' in nvp:
-            vd.init_children(len(nvp['children']))
-            for child in nvp['children']:
-                vd.add_child(child)
-        
-        if vd.is_leaf:
-            vd.desc['ready'] = False
-        
-        return vd
-    
-    def mark_leaf_ready(self, guid):
-        if self.is_leaf:
-            if self.desc['guid'] == guid:
-                assert(not self.desc['ready'])
-                self.desc['ready'] = True
-                return True
-            else:
-                return False
-        else:
-            for child in self.desc['child']:
-                if child and child.mark_leaf_ready(guid):
-                    return True
-            return False
-    
-    def dump(self, indent=0, info=None):
-        vdev_keys = [ 'type', 'id', 'guid', 'path', 'ready' ]
-        keylen = max([len(k) for k in vdev_keys] + [len('is_top')])
-        
-        tab = 2 * ' '
-        line = '-' * (80 - indent * len(tab))
-        enterLine = '<' * (80 - indent * len(tab))
-        exitLine = '>' * (80 - indent * len(tab))
-        
-        if info is None:
-            info = []
-        append = lambda msg : info.append(indent * tab + msg)
-        
-        append(line)
-        if self.is_top:
-            append('%-*s : %s' % (keylen, 'is_top', str(True)))
-        
-        for key in vdev_keys:
-            if key in self.desc:
-                append('%-*s : %s' % (keylen, key, str(self.desc[key])))
-        if not self.is_leaf:
-            for child in self.desc['child']:
-                append(enterLine)
-                if child:
-                    child.dump(indent=indent+1, info=info)
-                else:
-                    append('missing the child ...')
-                append(exitLine)
-        append(line)
-        
-        if indent == 0:
-            print('\n'.join(info))
-    
-    def add_top_child(self, nvp):
-        tvd = self.add_child(nvp)
-        assert(tvd.children == tvd.ready_children)
-    
     @classmethod
-    def make_root_vdev(cls, nvp):
-        rvd = cls(type='root')
+    def make(cls, nvlist, root_vdevs=None):
+        # check whether nvlist is valid
+        NVLIST_KEYS = [ 'name', 'pool_guid', 'vdev_tree', 'vdev_children' ]
+        for key in NVLIST_KEYS:
+            if key not in nvlist:
+                return None
         
-        rvd.desc['guid'] = nvp['pool_guid']
-        rvd.desc['name'] = nvp['name']
-        rvd.desc['pool_guid'] = nvp['pool_guid']
-        
-        rvd.init_children(nvp['vdev_children'])
-        rvd.add_top_child(nvp['vdev_tree'])
-        
-        return rvd
-    
-    @classmethod
-    def parse(cls, disk_list, root_vdevs=None):
         if root_vdevs is None:
             root_vdevs = {}
         
-        disks_saved = set()
-        for path in disk_list:
-            if path in disks_saved:
-                continue
-            disks_saved.add(path)
-            
-            disk = Disk(path)
-            if disk.path != path:
-                if disk.path in disks_saved:
-                    continue
-                disks_saved.add(disk.path)
-            
-            nvp = disk.pickup_label_nvpairs()
-            if not nvp:
-                continue
-            
-            if nvp['pool_guid'] not in root_vdevs:
-                root_vdevs[nvp['pool_guid']] = cls.make_root_vdev(nvp)
-            else:
-                root_vdevs[nvp['pool_guid']].add_top_child(nvp['vdev_tree'])
-            
-            marked = root_vdevs[nvp['pool_guid']].mark_leaf_ready(nvp['guid'])
-            if not marked:
-                root_vdevs[nvp['pool_guid']].dump()
-            assert(marked)
+        if nvlist['pool_guid'] not in root_vdevs:
+            root_vdevs[nvlist['pool_guid']] = cls(nvlist)
+        rvd = root_vdevs[nvlist['pool_guid']]
         
-        return root_vdevs
+        top_id = nvlist['vdev_tree']['id']
+        assert(top_id >= 0 and top_id < len(rvd.child))
+        if not rvd.child[top_id]:
+            rvd.add_child(nvlist['vdev_tree'])
+        
+        return rvd
+    
+    def __init__(self, nvlist, parent=None):
+        self.parent = parent
+        self.ashift = 0
+        self.disk = None
+        self.leaves = set()
+        
+        if parent is None:
+            self.guid = nvlist['pool_guid']
+            self.id = -1
+            self.child = [None] * nvlist['vdev_children']
+            self.type = 'root'
+            self.name = nvlist['name'] # Only for root-vdev
+        else:
+            self.guid = nvlist['guid']
+            self.id = nvlist['id']
+            if 'children' in nvlist:
+                self.child = [None] * len(nvlist['children'])
+            else:
+                self.child = []
+            self.type = nvlist['type']
+        
+        if parent is None:
+            self.top = None
+        elif parent.parent is None:
+            self.top = self
+            self.ashift = nvlist['ashift']
+        else:
+            assert(parent.top)
+            self.top = parent.top
+        
+        if len(self.child) == 0:
+            self.path = nvlist['path']
+        else:
+            self.path = ''
+    
+    def add_child(self, nvlist):
+        cvd = self.child[nvlist['id']] = type(self)(nvlist, parent=self)
+        if len(cvd.child) != 0:
+            for sub_nvl in nvlist['children']:
+                cvd.add_child(sub_nvl)
+    
+    def dump_topo(self, indent=0, tab=2*' ', output=None):
+        if output is None:
+            lines = []
+        else:
+            lines = output
+        
+        if self.is_root():
+            lines.append(indent*tab + '%s[GUID=%s]' % (
+                self.name, hex(self.guid).strip('L')
+            ))
+        else:
+            lines.append(indent*tab + '<%s>[%d]%s' % (
+                self.type, self.id, self.path
+            ))
+        
+        for cvd in self.child:
+            cvd.dump_topo(indent=indent+1, tab=tab, output=lines)
+        
+        if output is None:
+            print('\n'.join(lines))
+    
+    def verify(self, only_for_root=False):
+        if only_for_root and not self.is_root():
+            return
+        
+        if self.is_root():
+            rvd = self
+        else:
+            rvd = self.top.parent
+        
+        ashift = 0
+        for leaf in self.leaves:
+            assert(leaf.top.ashift > 0)
+            assert(ashift == 0 or leaf.top.ashift == ashift)
+            ashift = leaf.top.ashift
+    
+    def open(self):
+        if self._open():
+            self.verify(only_for_root=True)
+            return True
+        else:
+            self.close()
+            return False
+    
+    def _open(self):
+        if self.is_leaf():
+            return self.open_leaf()
+        
+        for child in self.child:
+            if not child:
+                return False
+            elif not child._open():
+                return False
+        
+        return True
+    
+    def open_leaf(self):
+        if self.disk:
+            return True
+        
+        assert(self.path)
+        self.disk = Disk(self.path)
+        if self.disk:
+            self.record_leaf()
+            return True
+        
+        return False
+    
+    def record_leaf(self):
+        if self.is_leaf():
+            parent = self.parent
+            while parent:
+                parent.leaves.add(self)
+                parent = parent.parent
+    
+    def close(self):
+        for child in self.child:
+            if child:
+                child.close()
+        self.disk = None
+    
+    def is_top(self):
+        return self == self.top
+    
+    def is_root(self):
+        return self.parent is None
+    
+    def is_leaf(self):
+        return len(self.child) == 0

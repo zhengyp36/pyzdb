@@ -83,7 +83,7 @@ class Compressor(object):
     __repr__ = __str__
     
     @classmethod
-    def register(cls):
+    def init_once(cls):
         if cls.name_table and cls.value_table:
             return
         
@@ -100,4 +100,4 @@ class Compressor(object):
             cls.value_table[enum_value] = inst
             setattr(cls, name, inst)
 
-Compressor.register()
+Compressor.init_once()

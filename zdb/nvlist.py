@@ -1,301 +1,287 @@
 # -*- coding:utf-8 -*-
 
-from . import utils
+from .utils import *
 
-class NVListDataType(object):
-    def __init__(self, data_type):
-        self.data_type = data_type
+class NVLDT(object):
+    '''NVLDT is nvlist-data-type'''
+    TABLE = [
+        [ 'dontcare', 'DATA_TYPE_DONTCARE',        -1 ],
+        [ 'unknown',  'DATA_TYPE_UNKNOWN',          0 ],
+        [ 'bool',     'DATA_TYPE_BOOLEAN',       None ],
+        [ 'byte',     'DATA_TYPE_BYTE',          None ],
+        [ 's16',      'DATA_TYPE_INT16',         None ],
+        [ 'u16',      'DATA_TYPE_UINT16',        None ],
+        [ 's32',      'DATA_TYPE_INT32',         None ],
+        [ 'u32',      'DATA_TYPE_UINT32',        None ],
+        [ 's64',      'DATA_TYPE_INT64',         None ],
+        [ 'u64',      'DATA_TYPE_UINT64',        None ],
+        [ 'str',      'DATA_TYPE_STRING',        None ],
+        [ 'byteA',    'DATA_TYPE_BYTE_ARRAY',    None ],
+        [ 's16A',     'DATA_TYPE_INT16_ARRAY',   None ],
+        [ 'u16A',     'DATA_TYPE_UINT16_ARRAY',  None ],
+        [ 's32A',     'DATA_TYPE_INT32_ARRAY',   None ],
+        [ 'u32A',     'DATA_TYPE_UINT32_ARRAY',  None ],
+        [ 's64A',     'DATA_TYPE_INT64_ARRAY',   None ],
+        [ 'u64A',     'DATA_TYPE_UINT64_ARRAY',  None ],
+        [ 'strA',     'DATA_TYPE_STRING_ARRAY',  None ],
+        [ 'hrtime',   'DATA_TYPE_HRTIME',        None ],
+        [ 'nvlist',   'DATA_TYPE_NVLIST',        None ],
+        [ 'nvlistA',  'DATA_TYPE_NVLIST_ARRAY',  None ],
+        [ 'boolV',    'DATA_TYPE_BOOLEAN_VALUE', None ],
+        [ 's8',       'DATA_TYPE_INT8',          None ],
+        [ 'u8',       'DATA_TYPE_UINT8',         None ],
+        [ 'boolA',    'DATA_TYPE_BOOLEAN_ARRAY', None ],
+        [ 's8A',      'DATA_TYPE_INT8_ARRAY',    None ],
+        [ 'u8A',      'DATA_TYPE_UINT8_ARRAY',   None ],
+    ]
+    
+    @classmethod
+    def from_int(cls, value):
+        return cls.MEMBERS[int(value)]
+    
+    @classmethod
+    def from_str(cls, name):
+        return cls.MEMBERS[name]
+    
+    @property
+    def name(self):
+        return self._name
+    
+    @property
+    def value(self):
+        return self._value
     
     def __str__(self):
-        return self.value2name(self.data_type)
-    
+        return self._enum_name
     __repr__ = __str__
     
     @classmethod
-    def initDataTypeDict(cls):
-        if not cls.NAME_TO_VALUE or not cls.VALUE_TO_NAME:
-            value = cls.MIN_VALUE
-            for name in cls.DataTypeList:
-                cls.NAME_TO_VALUE[name] = value
-                cls.VALUE_TO_NAME[value] = name
-                value += 1
-            cls.MAX_VALUE = value
-    
-    @classmethod
-    def name2value(cls, name):
-        cls.initDataTypeDict()
-        if name in cls.NAME_TO_VALUE:
-            return cls.NAME_TO_VALUE[name]
-        else:
-            return cls.MIN_VALUE - 1
-    
-    @classmethod
-    def value2name(cls, value):
-        cls.initDataTypeDict()
-        if value in cls.VALUE_TO_NAME:
-            return cls.VALUE_TO_NAME[value]
-        else:
-            return '{%d?[%d~%d]}' % (value, cls.MIN_VALUE, cls.MAX_VALUE)
-    
-    NAME_TO_VALUE,VALUE_TO_NAME = {},{}
-    MIN_VALUE = MAX_VALUE = -1
-    
-    DataTypeList = [
-        'DATA_TYPE_DONTCARE',    # -1
-        'DATA_TYPE_UNKNOWN',     # 0
-        'DATA_TYPE_BOOLEAN',
-        'DATA_TYPE_BYTE',
-        'DATA_TYPE_INT16',
-        'DATA_TYPE_UINT16',
-        'DATA_TYPE_INT32',
-        'DATA_TYPE_UINT32',
-        'DATA_TYPE_INT64',
-        'DATA_TYPE_UINT64',
-        'DATA_TYPE_STRING',
-        'DATA_TYPE_BYTE_ARRAY',
-        'DATA_TYPE_INT16_ARRAY',
-        'DATA_TYPE_UINT16_ARRAY',
-        'DATA_TYPE_INT32_ARRAY',
-        'DATA_TYPE_UINT32_ARRAY',
-        'DATA_TYPE_INT64_ARRAY',
-        'DATA_TYPE_UINT64_ARRAY',
-        'DATA_TYPE_STRING_ARRAY',
-        'DATA_TYPE_HRTIME',
-        'DATA_TYPE_NVLIST',
-        'DATA_TYPE_NVLIST_ARRAY',
-        'DATA_TYPE_BOOLEAN_VALUE',
-        'DATA_TYPE_INT8',
-        'DATA_TYPE_UINT8',
-        'DATA_TYPE_BOOLEAN_ARRAY',
-        'DATA_TYPE_INT8_ARRAY',
-        'DATA_TYPE_UINT8_ARRAY',
-    ]
+    def init_once(cls):
+        if not cls.MEMBERS:
+            v = -1
+            for n,e,_v in cls.TABLE:
+                if _v is not None:
+                    v = _v
+                else:
+                    v += 1
+                
+                inst = cls()
+                setattr(inst, '_name', n)
+                setattr(inst, '_enum_name', e)
+                setattr(inst, '_value', v)
+                
+                cls.MEMBERS[n] = cls.MEMBERS[e] = cls.MEMBERS[v] = inst
+                setattr(cls, n, inst)
+    MEMBERS = {}
+NVLDT.init_once()
 
-class NVListParser(utils.ByteParser):
-    DEBUG = True
+class NVList(object):
+    NV_HEADER = [ 'encoding', 'host-endian', 'reserved' ]
+    NV_ATTR   = [ 'version',  'nvflag' ]
+    NV_PAIR   = [
+        'encode_size', 'decode_size',
+        'name', 'data_type', 'nelem', 'value', 'formatter'
+    ]
     
-    def __init__(self, buffer, endian='big', formatter=None):
-        super(type(self), self).__init__(buffer, endian=endian)
-        if formatter is not None:
-            self.formatter = formatter
-    
-    def parse(self, nvlistType):
-        instance = nvlistType()
-        instance.nvheader = self.read_nvheader()
-        self.read_nvlist(instance=instance)
-        return instance
-    
-    NVHEADER_ITEMS = ['encoding', 'host-endian', 'reserved']
-    def read_nvheader(self):
-        return {
-            'encoding'   :  {
-                                0:'NV_ENCODE_NATIVE',
-                                1:'NV_ENCODE_XDR',
-                            }[self.read_u8()],
-            'host-endian':  {
-                                0:'big',
-                                1:'little',
-                            }[self.read_u8()],
-            'reserved'   :  [
-                                self.read_u8(),
-                                self.read_u8()
-                            ]
-        }
-    
-    def read_nvlist(self, instance=None, parent=None):
-        if instance is None:
-            assert(parent)
-            instance = type(parent)(parent=parent)
+    @classmethod
+    def from_bytes(cls, bytes):
+        inst,xdr = cls(),XDR(bytes)
         
-        instance.nvattr = self.read_nvattr()
+        inst._set_nvheader(xdr)
+        cls._parse_nvlist(xdr, inst=inst)
+        inst.encode_size = xdr.pos
+        
+        return inst
+    
+    def __init__(self, parent=None):
+        self.parent      = parent
+        
+        self.nvheader    = self._init_dict(self.NV_HEADER)
+        self.nvattr      = self._init_dict(self.NV_ATTR)
+        
+        self._items      = {}
+        self._item_order = []
+        
+        self.pos_start   = 0
+        self.pos_end     = 0
+    
+    def __str__(self):
+        return '{\n' + self._format(indent=1, tab=2*' ') + '\n}'
+    __repr__ = __str__
+    
+    def __bool__(self):
+        return not not self._items
+    __nonzero__ = __bool__
+    
+    def __contains__(self, key):
+        return key in self._items
+    
+    def __getitem__(self, key):
+        return self._items[key]['value']
+    
+    def item(self, key):
+        return self._items[key]
+    
+    @classmethod
+    def _parse_nvlist(cls, xdr, inst=None, parent=None):
+        if inst is None:
+            assert(parent is not None)
+            inst = cls(parent=parent)
+        
+        inst.pos_start = xdr.pos
+        inst._set_nvattr(xdr)
+        inst._parse_nvpairs(xdr)
+        inst.pos_end = xdr.pos
+        
+        return inst
+    
+    def _set_nvheader(self, xdr):
+        self.nvheader['encoding'   ] = xdr.read_int('s8')
+        self.nvheader['host-endian'] = xdr.read_int('s8')
+        self.nvheader['reserved'   ] = [xdr.read_int('s8'),xdr.read_int('s8')]
+    
+    def _set_nvattr(self, xdr):
+        self.nvattr['version'] = xdr.read_int('s32')
+        self.nvattr['nvflag' ] = xdr.read_int('s32')
+    
+    def _parse_nvpairs(self, xdr):
         while True:
-            nvp = self.read_nvpair(nvl=instance)
-            if nvp is None:
-                break
+            nvp = self._next_nvpair(xdr)
+            if nvp is not None:
+                assert(nvp['name'] not in self._items)
+                self._item_order.append(nvp['name'])
+                self._items[nvp['name']] = nvp
             else:
-                instance.add(nvp)
-        
-        return instance
+                break
     
-    NVATTR_ITEMS = ['version', 'nvflag']
-    def read_nvattr(self):
-        return {
-            'version' : self.read_s32(),
-            'nvflag'  : self.nvflagstr(self.read_s32())
-        }
-    
-    def read_nvpair(self, nvl):
-        sz,nvp,orig_pos = 0,{},self.pos
+    def _next_nvpair(self, xdr):
+        orig_pos,sz = xdr.pos,0
+        nvp = self._init_dict(self.NV_PAIR)
         
-        nvp['encode_size'] = self.read_s32()
+        nvp['encode_size'] = xdr.read_int('s32')
         sz += 4
         
-        nvp['decode_size'] = self.read_s32()
+        nvp['decode_size'] = xdr.read_int('s32')
         sz += 4
         
         if nvp['encode_size'] == 0 or nvp['decode_size'] == 0:
             assert(nvp['encode_size'] == 0 and nvp['decode_size'] == 0)
+            assert(len(self._items) > 0)
             return None
         
-        nvp['name'],_sz = self.read_str(return_encode_size=True)
+        nvp['name'],_sz = xdr.read_str(return_encode_size=True)
         sz += _sz
         
-        nvp['data_type'] = NVListDataType(self.read_s32())
+        nvp['data_type'] = NVLDT.from_int(xdr.read_int('s32'))
         sz += 4
         
-        nvp['nelem'] = self.read_s32()
+        nvp['nelem'] = xdr.read_int('s32')
         sz += 4
         
-        nvp['value'],_sz = self.read_nvpair_value(
-            nvp, nvp['encode_size']-sz, nvl)
+        nvp['value'],_sz = self._parse_nvpair_value(xdr, nvp)
         sz += _sz
         
-        assert(orig_pos + sz == self.pos)
+        assert(orig_pos + sz == xdr.pos)
+        nvp['formatter'] = self._get_formatter(nvp)
         
-        nvp['formatter'] = self.formatter(nvp['name'])
         return nvp
     
-    def read_nvpair_value(self, nvp, value_size, nvl):
-        orig_pos = self.pos
-        
-        dt = str(nvp['data_type'])
-        ops = {
-            'DATA_TYPE_UINT64'        : self.read_u64,
-            'DATA_TYPE_STRING'        : self.read_str,
-            'DATA_TYPE_BOOLEAN'       : self.read_boolean,
-            'DATA_TYPE_BOOLEAN_VALUE' : self.read_boolean_value,
-        }
-        
-        if dt in ops:
-            value = ops[dt]()
-        elif dt == 'DATA_TYPE_NVLIST':
-            value = self.read_nvlist(parent=nvl)
-        elif dt == 'DATA_TYPE_NVLIST_ARRAY':
-            assert(nvp['nelem'] >= 1)
-            value,nelem = [],nvp['nelem']
-            while nelem > 0:
-                value.append(self.read_nvlist(parent=nvl))
-                nelem -= 1
-            assert(len(value) == nvp['nelem'])
+    def _parse_nvpair_value(self, xdr, nvp):
+        dt  = nvp['data_type']
+        if dt in [NVLDT.nvlist, NVLDT.nvlistA]:
+            return self._parse_value_nvlist(xdr, nvp)
         else:
-            value = None
-            self.skip(value_size)
-            if not self.DEBUG:
-                raise ValueError("NVList data type '%s' not supported" % dt)
+            ops = {
+                NVLDT.u64   : lambda : (xdr.read_int('u64'),8),
+                NVLDT.str   : lambda : xdr.read_str(return_encode_size=True),
+                NVLDT.bool  : lambda : ('',0),
+                NVLDT.boolV : lambda : (xdr.read_int('s32'),4),
+            }
+            
+            assert(dt in ops)
+            val,sz = ops[dt]()
+            
+            if dt == NVLDT.boolV:
+                assert(val in [0,1])
+            
+            return val,sz
+    
+    def _parse_value_nvlist(self, xdr, nvp):
+        nelem = nvp['nelem']
+        assert(nelem >= 1)
         
-        assert(self.pos - orig_pos == value_size)
-        return [value,value_size]
-    
-    def read_boolean(self):
-        return ''
-    
-    def read_boolean_value(self):
-        value_table = {0:False, 1:True}
-        value = self.read_s32()
-        assert(value in value_table)
-        return value_table[value]
+        pos,arr = xdr.pos,[]
+        while nelem > 0:
+            arr.append(self._parse_nvlist(xdr, parent=self))
+            nelem -= 1
+        sz = xdr.pos - pos
+        
+        if nvp['data_type'] == NVLDT.nvlist:
+            assert(len(arr) == 1)
+            return arr[0],sz
+        else:
+            return arr,sz
     
     @classmethod
-    def formatter(cls, name):
-        if 'guid' in name:
-            return hex
+    def _get_formatter(cls, nvp):
+        if 'guid' in nvp['name']:
+            return (lambda n : hex(n).strip('L'))
         else:
             return str
     
-    @classmethod
-    def nvflagstr(cls, flag):
-        NV_FLAGS = [
-            ['NV_UNIQUE_NAME.0x1',      0x1],
-            ['NV_UNIQUE_NAME_TYPE.0x2', 0x2],
-        ]
+    def _format(self, indent=0, tab=2*' ', output=None):
+        keylen = max([len(n) for n in self._item_order])
         
-        names = []
-        for item in NV_FLAGS:
-            if flag & item[1]:
-                names.append(item[0])
-                flag &= ~item[1]
+        if output is None:
+            lines = []
+        else:
+            lines = output
         
-        if flag != 0:
-            names.append('?.'+hex(flag))
+        TAB = indent*tab
+        append = lambda s : lines.append(TAB+s)
         
-        return '|'.join(names)
-
-class NVList(object):
-    def __init__(self, parent=None):
-        self.parent = parent
-        self.nvheader = {}
-        self.nvattr = {}
-        self.elems = {}
-        self.elem_order = []
-    
-    def keys(self):
-        return [ k for k in self.elem_order ]
-    
-    def __contains__(self, key):
-        return key in self.elems
-    
-    def __getitem__(self, key):
-        if key not in self.elems:
-            raise KeyError("'%s' not found in the nvlist" % key)
-        return self.elems[key]['value']
-    
-    def add(self, nvpair):
-        assert(nvpair['name'] not in self.elems)
-        self.elems[nvpair['name']] = nvpair
-        self.elem_order.append(nvpair['name'])
-    
-    @classmethod
-    def parse(cls, buffer, endian='big'):
-        return NVListParser(buffer, endian=endian).parse(cls)
-    
-    def dump(self, indent=0, info=None):
-        maxlen = lambda d,m=0 : max([len(k) for k in d]+[m])
-        keylen = maxlen(self.nvheader, m=0)
-        keylen = maxlen(self.nvattr, m=keylen)
-        keylen = maxlen(self.elem_order, m=keylen)
+        def append_sep(sep,info):
+            if info != '':
+                info = '[%s]' % str(info)
+            half = int((80 - len(TAB) - len(info)) / 2) * sep
+            pad = sep * (80 - 2 * len(half) - len(info) - len(TAB))
+            append(half + info + half + pad)
         
-        tab = 2 * ' '
-        line = '-' * (80 - indent * len(tab))
-        enterLine = '<' * (80 - indent * len(tab))
-        exitLine = '>' * (80 - indent * len(tab))
+        enterLine = lambda s='' : append_sep('>',s)
+        exitLine  = lambda s='' : append_sep('<',s)
         
-        if info is None:
-            info = []
-        append = lambda msg : info.append(indent * tab + msg)
-        
-        if self.nvheader:
-            append(line)
-            for k in NVListParser.NVHEADER_ITEMS:
-                append('%-*s : %s' % (keylen, k, str(self.nvheader[k])))
-        
-        append(line)
-        for k in NVListParser.NVATTR_ITEMS:
-            append('%-*s : %s' % (keylen, k, str(self.nvattr[k])))
-        
-        nvpair2str = lambda nvp : '%s|%d.%d|%d{%s}' % (
-            str(nvp['data_type']),
-            nvp['encode_size'], nvp['decode_size'], nvp['nelem'],
-            nvp['formatter'](nvp['value'])
-        )
-        
-        append(line)
-        for k in self.elem_order:
-            nvp = self.elems[k]
-            append('%-*s : %s' % (keylen, k, nvpair2str(nvp)))
+        for name in self._item_order:
+            item = self._items[name]
+            dt,nelem,value = item['data_type'],item['nelem'],item['value']
             
-            dt = str(nvp['data_type'])
-            if dt == 'DATA_TYPE_NVLIST':
-                nvlarr = [nvp['value']]
-            elif dt == 'DATA_TYPE_NVLIST_ARRAY':
-                nvlarr = nvp['value']
-            else:
-                continue
-            
-            append(enterLine)
-            for nvl in nvlarr:
-                nvl.dump(indent=indent+1, info=info)
-            append(exitLine)
-        append(line)
+            if dt not in [NVLDT.nvlist, NVLDT.nvlistA]:
+                append('%-*s : %s' % (
+                    keylen, name,
+                    item['formatter'](value)
+                ))
+            elif dt == NVLDT.nvlist:
+                append('%-*s :' % (keylen, name))
+                enterLine()
+                value._format(indent=indent+1,tab=tab,output=lines)
+                exitLine()
+            else: # NVLDT.nvlistA
+                append('%-*s :' % (keylen, name))
+                enterLine(0)
+                for i in range(nelem):
+                    value[i]._format(indent=indent+1,tab=tab,output=lines)
+                    if i != nelem - 1: # not the last nvlist
+                        exitLine(i)
+                        enterLine(i+1)
+                    else: # the last nvlist
+                        exitLine(i)
         
-        if indent == 0:
-            print('\n'.join(info))
+        if output is None:
+            return '\n'.join(lines)
+    
+    @classmethod
+    def _init_dict(self, keys):
+        _dict,default_value = {},None
+        for key in keys:
+            _dict[key] = default_value
+        return _dict
+    
