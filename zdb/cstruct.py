@@ -156,12 +156,14 @@ class UberBlock(CStruct):
     UBERBLOCK_MAGIC = 0x00bab10c # oo-ba-block
     
     def _set_endian(self, bytes, endian):
-        magic = Int.from_bytes(bytes[0:8], endian=Endian.little)
+        magic_buf = bytes[0:8]
+        magic = Int.from_bytes(magic_buf, endian=Endian.little)
         if magic == self.UBERBLOCK_MAGIC:
             self._endian = Endian.little
         else:
-            magic = Int.from_bytes(bytes, endian=Endian.big)
-            assert(magic == self.UBERBLOCK_MAGIC)
+            magic = Int.from_bytes(magic_buf, endian=Endian.big)
+            if magic != self.UBERBLOCK_MAGIC:
+                raise MagicError(type(self))
             self._endian = Endian.big
     
     def _validate(self):

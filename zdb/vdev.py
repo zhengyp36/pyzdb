@@ -17,13 +17,18 @@ class VDevManager(object):
             devs = disks[:]
         
         # TODO: need read other labels if failed
+        disk_min_size = 256*1024 * 4 + 3.5 * 1024 * 1024
         label_start, label_length = 16*1024, 112*1024
         
         for dev in devs:
+            disk = Disk(dev)
+            if disk.size.size <= disk_min_size:
+                continue
+            
+            raw_data = disk.read(label_start, label_length)
             try:
-                raw_data = Disk(dev).read(label_start, label_length)
                 nvlist = NVList.from_bytes(raw_data)
-            except:
+            except AssertionError:
                 continue
             
             rvd = VDev.make(nvlist, root_vdevs=self.root_vdevs)

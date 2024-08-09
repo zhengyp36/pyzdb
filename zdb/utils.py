@@ -3,6 +3,18 @@
 import sys
 import struct
 
+class MagicError(Exception):
+    def __init__(self, source, value=None):
+        super(type(self),self).__init__('MagicError')
+        self.source = str(source)
+        self.value = value
+    
+    def __str__(self):
+        s = '%s from %s' % (str(self.args[0]), self.source)
+        if self.value is not None:
+            s += ', value={%s}' % str(self.value)
+        return s
+
 class StorageSize(object):
     KILOBYTE = 1024
     UNITS    = [ "B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" ]
