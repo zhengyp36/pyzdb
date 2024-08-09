@@ -68,10 +68,30 @@ def EnumType(TypeDef):
             return cls.MEMBERS_DICT[int(value)]
         
         @classmethod
-        def ls(cls):
-            l1 = max([len(i._name) for i in cls.MEMBERS_LIST])
-            l2 = max([len(i._enum_name) for i in cls.MEMBERS_LIST])
-            for inst in cls.MEMBERS_LIST:
+        def ls_range(cls):
+            values = list(set([i._value for i in cls.MEMBERS_LIST]))
+            values.sort()
+            
+            start = last = values[0]
+            for curr in values[1:]:
+                if last + 1 < curr:
+                    print('%d -> %d' % (start, last))
+                    start = last = curr
+                else:
+                    last = curr
+            print('%d -> %d' % (start, last))
+        
+        @classmethod
+        def ls(cls, sort=False):
+            if sort:
+                members = cls.MEMBERS_LIST[:]
+                members.sort(key=lambda m : m._value)
+            else:
+                members = cls.MEMBERS_LIST
+            
+            l1 = max([len(i._name) for i in members])
+            l2 = max([len(i._enum_name) for i in members])
+            for inst in members:
                 print('%-*s : %-*s : %d' % (
                     l1, inst._name, l2, inst._enum_name, inst._value
                 ))
@@ -238,7 +258,7 @@ class CStruct(object):
        where the proto-type of converter is converter(bytes,endian) and
        the formatter's formatter(val) where 'val' is CStruct().fields[name]
     
-    Lookup cstruct.py for more details.
+    Lookup zctypes.py for more details.
     '''
     STRUCT_NAME = ''
     FIELDS = []

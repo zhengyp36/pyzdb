@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 
 from .vdev import *
-from .cstruct import *
+from .zctypes import *
 from .utils import MagicError
 
 class Spa(object):
