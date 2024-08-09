@@ -38,15 +38,18 @@ class BlkPtr(CStruct):
     # TODO: Is the method of reading by Endian right?
     #       Is the bit position of E in blkptr_t.blk_prop right?
     
+    dva_conv = DVA.convert_method(dva_count=3)
+    dva_fmt  = lambda arr,_ : '[%s]' % ','.join([str(dva) for dva in arr])
+    
     STRUCT_NAME = 'blkptr_t'
     FIELDS = [
-        [ 'blk_dva',       48, DVA,         'str' ],
-        [ 'blk_prop',       8, 'u64',       None  ], # __blk_prop_formatter
-        [ 'blk_pad',       16, 'u64.array', 'str' ],
-        [ 'blk_phys_birth', 8, 'u64',       'str' ],
-        [ 'blk_birth',      8, 'u64',       'str' ],
-        [ 'blk_fill',       8, 'u64',       'str' ],
-        [ 'blk_cksum',     32, ZioCkSum,    'str' ],
+        [ 'blk_dva',       48, dva_conv,    dva_fmt ],
+        [ 'blk_prop',       8, 'u64',       None    ], # __blk_prop_formatter
+        [ 'blk_pad',       16, 'u64.array', 'str'   ],
+        [ 'blk_phys_birth', 8, 'u64',       'str'   ],
+        [ 'blk_birth',      8, 'u64',       'str'   ],
+        [ 'blk_fill',       8, 'u64',       'str'   ],
+        [ 'blk_cksum',     32, ZioCkSum,    'str'   ],
     ]
     
     FIELDS_PROP_NORMAL = [
@@ -76,7 +79,7 @@ class BlkPtr(CStruct):
     ]
     
     def _set_endian(self, bytes, endian):
-        offset = self.count_offset('blk_prop') + 7
+        offset = self.offsetof('blk_prop') + 7
         prop = Int.from_bytes(bytes[offset:offset+1])
         
         E = Int(prop).bit_field(7,1)

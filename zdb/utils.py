@@ -191,7 +191,17 @@ class CStruct(object):
         'magic32' : lambda val,inst : '0x' + hex(val)[2:].zfill(8),
     }
     
+    @classmethod
+    def convert_method(cls, dva_count=1, verify=False):
+        def convert(bytes, endian=Endian.little):
+            sz = cls.sizeof()
+            if verify:
+                assert(sz * dva_count == len(bytes))
+            return [cls(bytes[i*sz:i*sz+sz]) for i in range(dva_count)]
+        return convert
+    
     def __init__(self, bytes, endian=Endian.little):
+        assert(len(bytes) >= self.sizeof())
         mv = memoryview(bytes)
         self._init_this_type()
         self._set_endian(mv, endian)
@@ -229,7 +239,7 @@ class CStruct(object):
         return self._endian
     
     @classmethod
-    def count_offset(cls, field, verify=False):
+    def offsetof(cls, field, verify=False):
         off = 0
         for name,sz,_,_ in cls.FIELDS:
             if name == field:
@@ -239,6 +249,10 @@ class CStruct(object):
         if verify:
             raise Exception("Field name '%s' not found" % field)
         return off
+    
+    @classmethod
+    def sizeof(cls):
+        return sum([f[1] for f in cls.FIELDS])
     
     def do_format(self, checker=None, keylen=None):
         if keylen is None:
