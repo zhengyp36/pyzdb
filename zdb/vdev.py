@@ -90,6 +90,7 @@ class VDev(object):
         self.ashift = 0
         self.disk = None
         self.leaves = set()
+        self._opened = False
         
         if parent is None:
             self.guid = nvlist['pool_guid']
@@ -165,6 +166,8 @@ class VDev(object):
     def open(self):
         if self._open():
             self.verify(only_for_root=True)
+            if self.is_root():
+                self._opened = True
             return True
         else:
             self.close()
@@ -202,6 +205,9 @@ class VDev(object):
                 parent = parent.parent
     
     def close(self):
+        if self.root._opened:
+            self.root._opened = False
+        
         for child in self.child:
             if child:
                 child.close()
@@ -215,3 +221,14 @@ class VDev(object):
     
     def is_leaf(self):
         return len(self.child) == 0
+    
+    @property
+    def root(self):
+        if self.is_root():
+            return self
+        else:
+            return self.top.parent
+    
+    @property
+    def opened(self):
+        return self.root._opened
