@@ -7,7 +7,9 @@ class DVA(CStruct):
     STRUCT_NAME = 'dva_t'
     FIELDS = [['dva_word', 16, 'u64.array', 'str']]
     
-    def _after_init(self):
+    def _do_init(self, bytes):
+        self.set_fields(bytes)
+        
         bitfields = {
             'asize'  : [ 0,  0, 24 ],
             'grid'   : [ 0, 24,  8 ],
@@ -79,14 +81,28 @@ class BlkPtr(CStruct):
         [ 'E',     63,  1 ],
     ]
     
-    def _set_endian(self, bytes, endian):
+    def _do_init(self, bytes):
+        self._init_once()
+        self._set_endian(bytes)
+        self.set_fields(bytes)
+        self._set_prop_fields()
+    
+    @classmethod
+    def _init_once(cls):
+        if not cls._INITED_ONCE:
+            idx = cls.indexof('blk_prop', verify=True)
+            cls.FIELDS[idx][3] = cls.__blk_prop_formatter
+            cls._INITED_ONCE = True
+    _INITED_ONCE = False
+    
+    def _set_endian(self, bytes):
         offset = self.offsetof('blk_prop') + 7
         prop = Int.from_bytes(bytes[offset:offset+1])
         
         E = Int(prop).bit_field(7,1)
         self._endian = Endian.from_int(E)
     
-    def _after_init(self):
+    def _set_prop_fields(self):
         E = Int(self.blk_prop).bit_field(63,1)
         assert(self.endian == Endian.from_int(E))
         
@@ -100,20 +116,6 @@ class BlkPtr(CStruct):
             setattr(self, bf[0], prop.bit_field(*bf[1:3]))
         
         assert(self.endian == Endian.from_int(self.E))
-    
-    @classmethod
-    def _before_init(cls):
-        if not cls.FIELDS_INITED:
-            formatters = {
-                'blk_prop' : cls.__blk_prop_formatter
-            }
-            
-            for f in cls.FIELDS:
-                if f[0] in formatters:
-                    f[3] = formatters[f[0]]
-            
-            cls.FIELDS_INITED = True
-    FIELDS_INITED = False
     
     @staticmethod
     def __blk_prop_formatter(value, inst):
@@ -181,8 +183,7 @@ class UberBlock(CStruct):
     ]
     UBERBLOCK_MAGIC = 0x00bab10c # oo-ba-block
     
-    def _set_endian(self, bytes, endian=None):
-        # ignore the argument 'endian' and retrieve by uberblock-magic
+    def _do_init(self, bytes):
         def retrieve_endian():
             magic_buf = bytes[0:8]
             for endian in [Endian.little,Endian.big]:
@@ -190,9 +191,9 @@ class UberBlock(CStruct):
                 if magic == self.UBERBLOCK_MAGIC:
                     return endian
             raise MagicError(type(self))
+        
         self._endian = retrieve_endian()
-    
-    def _after_init(self):
+        self.set_fields(bytes)
         assert(self.ub_magic == self.UBERBLOCK_MAGIC)
         assert(self.endian == self.ub_rootbp.endian)
 

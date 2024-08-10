@@ -304,23 +304,18 @@ class CStruct(object):
     
     def __init__(self, bytes, endian=Endian.default):
         assert(len(bytes) >= self.sizeof())
-        mv = memoryview(bytes)
-        self._before_init()
-        self._set_endian(mv, endian)
-        self._init_fields(mv)
-        self._after_init()
-    
-    def _set_endian(self, bytes, endian):
-        # uberblock and blkptr may redefine the method
+        self.fields = {}
         self._endian = endian
+        self._do_init(memoryview(bytes))
+    
+    def _do_init(self, bytes):
+        self.set_fields(bytes)
     
     def set_fields(self, bytes, pos=0, field_def=None, field_out=None):
-        mv = memoryview(bytes)
-        field_def = self._get_field_def(field_def)
-        if field_out is None:
-            field_out = {}
+        field_out = self._get_value(field_out, self.fields)
         
-        for entry in field_def:
+        mv = memoryview(bytes)
+        for entry in self._get_value(field_def, self.FIELDS):
             name,sz,conv = entry[:3]
             if sz > 0:
                 if name != '.':
@@ -333,10 +328,10 @@ class CStruct(object):
                     setattr(self, name, val)
                 pos += sz
         
-        return field_out,pos
+        return pos
     
     def do_format(self, field_def=None, checker=None, keylen=None):
-        field_def = self._get_field_def(field_def)
+        field_def = self._get_value(field_def, self.FIELDS)
         if keylen is None:
             keylen = max([ len(f[0]) for f in field_def ])
         output = []
@@ -360,18 +355,6 @@ class CStruct(object):
         
         return '\n'.join(output)
     
-    def _init_fields(self, mv):
-        self.fields,_ = self.set_fields(mv)
-    
-    def _after_init(self):
-        # Implemented by derived class
-        pass
-    
-    @classmethod
-    def _before_init(cls):
-        # Implemented by derived class such BlkPtr
-        pass
-    
     @property
     def endian(self):
         return self._endian
@@ -379,7 +362,7 @@ class CStruct(object):
     @classmethod
     def indexof(cls, field, field_def=None, verify=False):
         idx = 0
-        for entry in cls._get_field_def(field_def):
+        for entry in cls._get_value(field_def, cls.FIELDS):
             if entry[0] == field:
                 return idx
             idx += 1
@@ -390,7 +373,7 @@ class CStruct(object):
     
     @classmethod
     def offsetof(cls, field, field_def=None, verify=False):
-        field_def = cls._get_field_def(field_def)
+        field_def = cls._get_value(field_def, cls.FIELDS)
         idx = cls.indexof(field, field_def=field_def, verify=verify)
         if idx >= 0:
             field_def = field_def[:idx]
@@ -398,13 +381,14 @@ class CStruct(object):
     
     @classmethod
     def sizeof(cls, field_def=None):
-        return sum([f[1] for f in cls._get_field_def(field_def)])
+        return sum([f[1] for f in cls._get_value(field_def, cls.FIELDS)])
     
     @classmethod
-    def _get_field_def(cls, field_def):
-        if field_def is None:
-            field_def = cls.FIELDS
-        return field_def
+    def _get_value(cls, value, default_value):
+        if value is not None:
+            return value
+        else:
+            return default_value
     
     def __str__(self):
         return self.do_format()
