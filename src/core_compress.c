@@ -3,106 +3,92 @@
 
 typedef struct {
 	int compr_type;
-	int usr_writable;
-	int compr_writable;
-	Py_buffer usr_data;
-	Py_buffer compr_data;
-} inner_args_t;
+	int buf_num;
+	Py_buffer buf[2]; // buf[0] is src and buf[1] dst
+} param_t;
+
+static inline void
+put_param(param_t *param)
+{
+	while (param->buf_num > 0)
+		PyBuffer_Release(&param->buf[--(param->buf_num)]);
+}
 
 static int
-get_args(PyObject *args, inner_args_t *inner)
+get_param(PyObject *args, param_t *param)
 {
-	PyObject *usr_data, *compr_data;
+	PyObject *src, *dst;
 	if (!PyArg_ParseTuple(args, "iOO",
-	    &inner->compr_type, &usr_data, &compr_data))
+	    &param->compr_type, &src, &dst))
 		return (-1);
 
-	Py_buffer *bufs[2];
-	int buf_cnt = 0;
-
+	param->buf_num = 0;
 	do {
-		if (PyObject_GetBuffer(usr_data, &inner->usr_data,
-		    inner->usr_writable ? PyBUF_WRITABLE : 0) == -1) {
+		if (PyObject_GetBuffer(src,
+		    &param->buf[param->buf_num], 0) == -1) {
 			PyErr_SetString(PyExc_ValueError,
-			    "Failed to get usr_data buffer");
+			    "Failed to get src buffer");
 			break;
 		}
-		bufs[buf_cnt++] = &inner->usr_data;
+		param->buf_num++;
 
-		if (inner->usr_writable && inner->usr_data.readonly) {
+		if (PyObject_GetBuffer(dst,
+		    &param->buf[param->buf_num], PyBUF_WRITABLE) == -1) {
 			PyErr_SetString(PyExc_ValueError,
-			    "usr_data is not writable");
+			    "Failed to get dst buffer");
 			break;
 		}
+		param->buf_num++;
 
-		if (PyObject_GetBuffer(compr_data, &inner->compr_data,
-		    inner->compr_writable ? PyBUF_WRITABLE : 0) == -1) {
+		if (param->buf[param->buf_num - 1].readonly) {
 			PyErr_SetString(PyExc_ValueError,
-			    "Failed to get compr_data buffer");
-			break;
-		}
-		bufs[buf_cnt++] = &inner->compr_data;
-
-		if (inner->compr_writable && inner->compr_data.readonly) {
-			PyErr_SetString(PyExc_ValueError,
-			    "compr_data is not writable");
+			    "dst is not writable");
 			break;
 		}
 
 		return (0);
 	} while (0);
 
-	while (buf_cnt-- > 0)
-		PyBuffer_Release(bufs[buf_cnt]);
+	put_param(param);
 	return (-1);
 }
 
-static void
-put_args(inner_args_t *inner)
-{
-	PyBuffer_Release(&inner->usr_data);
-	PyBuffer_Release(&inner->compr_data);
-}
-
-/* core.compress(compr_type, usr_data, compr_data) -> int */
+/* core.compress(compr_type, src, dst) -> int */
 PyObject *
 zdbcore_compress(PyObject *self, PyObject *args)
 {
-	inner_args_t inner;
-	inner.usr_writable = 0;
-	inner.compr_writable = 1;
-
-	if (get_args(args, &inner))
+	param_t param;
+	if (get_param(args, &param))
 		return (NULL);
 
-	size_t sz = zio_compress(inner.compr_type,
-	    inner.usr_data.buf, inner.compr_data.buf,
-	    inner.usr_data.len, inner.compr_data.len);
-	if (sz == (size_t)inner.usr_data.len) {
+	size_t sz = zio_compress(param.compr_type,
+	    param.buf[0].buf, param.buf[1].buf,
+	    param.buf[0].len, param.buf[1].len);
+
+	PyObject *ret;
+	if (sz >= (size_t)param.buf[0].len) {
 		PyErr_SetString(PyExc_OSError, "Failed to compress");
-		put_args(&inner);
-		return (NULL);
+		ret = NULL;
+	} else {
+		ret = PY_INT_FROM(sz);
 	}
 
-	return (PY_INT_FROM(sz));
+	put_param(&param);
+	return (ret);
 }
 
-/* core.decompress(compr_type, usr_data, compr_data) -> None */
+/* core.decompress(compr_type, src, dst) -> None */
 PyObject *
 zdbcore_decompress(PyObject *self, PyObject *args)
 {
-	inner_args_t inner;
-	inner.usr_writable = 0;
-	inner.compr_writable = 1;
-
-	if (get_args(args, &inner))
+	param_t param;
+	if (get_param(args, &param))
 		return (NULL);
 
-
-	int error = zio_decompress(inner.compr_type,
-	    inner.usr_data.buf, inner.compr_data.buf,
-	    inner.usr_data.len, inner.compr_data.len);
-	put_args(&inner);
+	int error = zio_decompress(param.compr_type,
+	    param.buf[0].buf, param.buf[1].buf,
+	    param.buf[0].len, param.buf[1].len);
+	put_param(&param);
 
 	if (!error) {
 		Py_RETURN_NONE;

@@ -41,7 +41,7 @@ class Compressor(object):
         
         mv_usr = memoryview(usr_data)
         out_buffer = memoryview(bytearray(len(mv_usr)-1))
-        out_len = core.compress(self.enum_value, mv_usr, out_buffer)
+        out_len = core.compress(int(self), mv_usr, out_buffer)
         
         return bytearray(out_buffer[:out_len])
     
@@ -49,11 +49,11 @@ class Compressor(object):
         self.__check_supported()
         
         mv_compr = memoryview(compressed_data)
-        assert(usr_data_length > len(mv_compr))
-        usr_data = memoryview(bytearray(usr_data_length))
-        core.decompress(self.enum_value, usr_data, mv_compr)
+        assert(usr_data_length >= len(mv_compr))
+        usr_data = bytearray(usr_data_length)
+        core.decompress(int(self), mv_compr, memoryview(usr_data))
         
-        return bytearray(usr_data)
+        return usr_data
     
     def __check_supported(self):
         if not self.supported:

@@ -48,20 +48,19 @@ PyMODINIT_FUNC initcore(void) { zdbcore_init_impl(); }
 #endif
 
 #define ZDBCORE_COMPRESS_DOC \
-"core.compress(compr_type, usr_data, compr_data) -> int\n\n" \
+"core.compress(compr_type, src, dst) -> int\n\n" \
 "    compr_type : tell which algorithm to be used to compress data.\n" \
-"    usr_data   : an object of memoryview, storing data of user.\n" \
-"    compr_data : an writable object of memoryview with length shorter\n" \
-"                 than usr_data's, to store the compressed data.\n" \
-"    return-val : the length of compressed data in compr_data, shorter\n" \
-"                 than or equal to compr_data's.\n"
+"    src        : an object of memoryview, storing data of user.\n" \
+"    dst        : an writable object of memoryview with length shorter\n" \
+"                 than src's, to store the compressed data.\n" \
+"    return-val : the length of compressed data in dst, shorter than src's.\n"
 
 #define ZDBCORE_DECOMPRESS_DOC \
-"core.decompress(compr_type, usr_data, compr_data) -> None\n\n" \
+"core.decompress(compr_type, src, dst) -> None\n\n" \
 "    compr_type : tell which algorithm to be used to decompress data.\n" \
-"    usr_data   : an writable object of memoryview, to store\n" \
-"                 decompressed data.\n" \
-"    compr_data : an object of memoryview, holding data to be decompressed.\n" \
+"    src        : an object of memoryview, holding data to be decompressed.\n" \
+"    dst        : an writable object of memoryview, length of which is\n" \
+"                 longer than src's, to store decompressed data.\n" \
 "    return-val : None.\n"
 
 static PyMethodDef zdbcore_methods[] = {
