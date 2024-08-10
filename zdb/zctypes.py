@@ -7,7 +7,7 @@ class DVA(CStruct):
     STRUCT_NAME = 'dva_t'
     FIELDS = [['dva_word', 16, 'u64.array', 'str']]
     
-    def _validate(self):
+    def _after_init(self):
         bitfields = {
             'asize'  : [ 0,  0, 24 ],
             'grid'   : [ 0, 24,  8 ],
@@ -86,7 +86,7 @@ class BlkPtr(CStruct):
         E = Int(prop).bit_field(7,1)
         self._endian = Endian.from_int(E)
     
-    def _validate(self):
+    def _after_init(self):
         E = Int(self.blk_prop).bit_field(63,1)
         assert(self.endian == Endian.from_int(E))
         
@@ -102,7 +102,7 @@ class BlkPtr(CStruct):
         assert(self.endian == Endian.from_int(self.E))
     
     @classmethod
-    def _init_this_type(cls):
+    def _before_init(cls):
         if not cls.FIELDS_INITED:
             formatters = {
                 'blk_prop' : cls.__blk_prop_formatter
@@ -181,20 +181,45 @@ class UberBlock(CStruct):
     ]
     UBERBLOCK_MAGIC = 0x00bab10c # oo-ba-block
     
-    def _set_endian(self, bytes, endian):
-        magic_buf = bytes[0:8]
-        magic = Int.from_bytes(magic_buf, endian=Endian.little)
-        if magic == self.UBERBLOCK_MAGIC:
-            self._endian = Endian.little
-        else:
-            magic = Int.from_bytes(magic_buf, endian=Endian.big)
-            if magic != self.UBERBLOCK_MAGIC:
-                raise MagicError(type(self))
-            self._endian = Endian.big
+    def _set_endian(self, bytes, endian=None):
+        # ignore the argument 'endian' and retrieve by uberblock-magic
+        def retrieve_endian():
+            magic_buf = bytes[0:8]
+            for endian in [Endian.little,Endian.big]:
+                magic = Int.from_bytes(magic_buf, endian=endian)
+                if magic == self.UBERBLOCK_MAGIC:
+                    return endian
+            raise MagicError(type(self))
+        self._endian = retrieve_endian()
     
-    def _validate(self):
+    def _after_init(self):
         assert(self.ub_magic == self.UBERBLOCK_MAGIC)
         assert(self.endian == self.ub_rootbp.endian)
+
+class DNodePhys(CStruct):
+    blkptr_conv = BlkPtr.convert_method(count=1)
+    
+    STRUCT_NAME = 'dnode_phys_t'
+    FIELDS = [
+        [ 'dn_type',           1, 'u8',        'str' ],
+        [ 'dn_indblkshift',    1, 'u8',        'str' ],
+        [ 'dn_nlevels',        1, 'u8',        'str' ],
+        [ 'dn_nblkptr',        1, 'u8',        'str' ],
+        [ 'dn_bonustype',      1, 'u8',        'str' ],
+        [ 'dn_checksum',       1, 'u8',        'str' ],
+        [ 'dn_compress',       1, 'u8',        'str' ],
+        [ 'dn_flags',          1, 'u8',        'hex' ], # DNFT.* or DNODE_FLAG_*
+        [ 'dn_datablkszsec',   2, 'u16',       'str' ],
+        [ 'dn_bonuslen',       2, 'u16',       'str' ],
+        [ 'dn_extra_slots',    1, 'u8',        'str' ],
+        [ 'dn_pad2',           3, 'u8.array',  'str' ],
+        [ 'dn_maxblkid',       8, 'u64',       'str' ],
+        [ 'dn_used',           8, 'u64',       'str' ],
+        [ 'dn_pad3',          32, 'u64.array', 'str' ],
+        [ 'dn_blkptr',       128, blkptr_conv, '--'  ],
+        [ 'dn_bonus',        192, 'SKIP',      '--'  ],
+        [ 'dn_spill',        128, 'SKIP',      '--'  ],
+    ]
 
 @EnumType
 class DMUOT(object):

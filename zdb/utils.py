@@ -125,6 +125,12 @@ class Endian(object):
         [ 'big',    'BIG',    0 ],
         [ 'little', 'LITTLE', 1 ],
     ]
+    
+    @classmethod
+    def set_default(cls, endian):
+        assert(isinstance(endian, cls))
+        setattr(cls, 'default', endian)
+Endian.set_default(Endian.little)
 
 class StorageSize(object):
     KILOBYTE = 1024
@@ -169,26 +175,19 @@ class Int(object):
     }
     
     @classmethod
-    def from_bytes(cls, bytes, endian=Endian.little, signed=False):
+    def from_bytes(cls, bytes, endian=Endian.default, signed=False):
         fmt_e = cls.FORMAT_ENDIAN[endian]
         fmt_sz = cls.FORMAT_SIZE[signed][len(bytes)]
         return struct.unpack(fmt_e+fmt_sz, bytes)[0]
     
     @classmethod
     def from_bytes_to_list(cls,
-        bytes, int_size, endian=Endian.little, signed=False):
+        bytes, int_size, endian=Endian.default, signed=False):
         
         count = len(bytes) // int_size
         fmt_e = cls.FORMAT_ENDIAN[endian]
         fmt_sz = cls.FORMAT_SIZE[signed][int_size] * count
         return list(struct.unpack(fmt_e+fmt_sz, bytes))
-    
-    @classmethod
-    def convert_method(cls, int_size):
-        def convert(bytes, endian=Endian.little, signed=False):
-            return cls.from_bytes_to_list(bytes,
-                int_size, endian=endian, signed=signed)
-        return convert
     
     def __init__(self, value=0):
         self._value = int(value)
@@ -245,13 +244,13 @@ class CStruct(object):
     1. An example for blkptr_t:
        --------------------------------------------------
        FIELDS = [
-           [ 'blk_dva',       48, DVA,         str ],
-           [ 'blk_prop',       8, 'u64',       str ],
-           [ 'blk_pad',       16, 'u64.array', str ],
-           [ 'blk_phys_birth', 8, 'u64',       str ],
-           [ 'blk_birth',      8, 'u64',       str ],
-           [ 'blk_fill',       8, 'u64',       str ],
-           [ 'blk_cksum',     32, ZioCkSum,    str ],
+           [ 'blk_dva',       48, DVA,         'str' ],
+           [ 'blk_prop',       8, 'u64',       'str' ],
+           [ 'blk_pad',       16, 'u64.array', 'str' ],
+           [ 'blk_phys_birth', 8, 'u64',       'str' ],
+           [ 'blk_birth',      8, 'u64',       'str' ],
+           [ 'blk_fill',       8, 'u64',       'str' ],
+           [ 'blk_cksum',     32, ZioCkSum,    'str' ],
        ]
        --------------------------------------------------
     2. Titles for every row are name, size, converter and formatter,
@@ -263,56 +262,113 @@ class CStruct(object):
     STRUCT_NAME = ''
     FIELDS = []
     
+    conv_skip     = lambda bytes, endian : (
+        None
+    )
+    conv_unsigned = lambda bytes, endian : (
+        Int.from_bytes(bytes, endian=endian,signed=False)
+    )
+    conv_array_u8 = lambda bytes, endian : (
+        Int.from_bytes_to_list(bytes, int_size=1, endian=endian, signed=False)
+    )
+    conv_array_u64 = lambda bytes, endian : (
+        Int.from_bytes_to_list(bytes, int_size=8, endian=endian, signed=False)
+    )
+    
     CONVERT_TABLE = {
-        'u64'       : Int.from_bytes,
-        'u64.array' : Int.convert_method(int_size=8),
+        '.'         : conv_skip,
+        'SKIP'      : conv_skip,
+        
+        'u8'        : conv_unsigned,
+        'u16'       : conv_unsigned,
+        'u64'       : conv_unsigned,
+        
+        'u8.array'  : conv_array_u8,
+        'u64.array' : conv_array_u64,
     }
     
     FORMAT_TABLE = {
         'str'     : lambda val,inst : str(val),
+        'hex'     : lambda val,inst : hex(val).strip('L'),
         'magic32' : lambda val,inst : '0x' + hex(val)[2:].zfill(8),
     }
     
     @classmethod
     def convert_method(cls, count=1, verify=False):
-        def convert(bytes, endian=Endian.little):
+        def convert(bytes, endian=Endian.default):
             sz = cls.sizeof()
             if verify:
                 assert(sz * count == len(bytes))
             return [cls(bytes[i*sz:i*sz+sz]) for i in range(count)]
         return convert
     
-    def __init__(self, bytes, endian=Endian.little):
+    def __init__(self, bytes, endian=Endian.default):
         assert(len(bytes) >= self.sizeof())
         mv = memoryview(bytes)
-        self._init_this_type()
+        self._before_init()
         self._set_endian(mv, endian)
         self._init_fields(mv)
-        self._validate()
+        self._after_init()
     
     def _set_endian(self, bytes, endian):
         # uberblock and blkptr may redefine the method
         self._endian = endian
     
-    def _init_fields(self, mv):
-        pos,self.fields = 0,{}
-        for name,sz,conv,_ in self.FIELDS:
-            if name != '.':
-                if conv in self.CONVERT_TABLE:
-                    conv = self.CONVERT_TABLE[conv]
-                val = conv(mv[pos:pos+sz],self._endian)
-                
-                assert(name not in self.fields)
-                self.fields[name] = val
-                setattr(self, name, val)
-            pos += sz
+    def set_fields(self, bytes, pos=0, field_def=None, field_out=None):
+        mv = memoryview(bytes)
+        field_def = self._get_field_def(field_def)
+        if field_out is None:
+            field_out = {}
+        
+        for entry in field_def:
+            name,sz,conv = entry[:3]
+            if sz > 0:
+                if name != '.':
+                    if conv in self.CONVERT_TABLE:
+                        conv = self.CONVERT_TABLE[conv]
+                    val = conv(mv[pos:pos+sz],self._endian)
+                    
+                    assert(name not in field_out)
+                    field_out[name] = val
+                    setattr(self, name, val)
+                pos += sz
+        
+        return field_out,pos
     
-    def _validate(self):
+    def do_format(self, field_def=None, checker=None, keylen=None):
+        field_def = self._get_field_def(field_def)
+        if keylen is None:
+            keylen = max([ len(f[0]) for f in field_def ])
+        output = []
+        
+        output.append(self.STRUCT_NAME + ' {')
+        for f in field_def:
+            name,sz,_,_fmt = f
+            if sz > 0:
+                if not checker or checker(f):
+                    if name != '.':
+                        if _fmt in self.FORMAT_TABLE:
+                            fmt = self.FORMAT_TABLE[_fmt]
+                        elif isinstance(_fmt,str):
+                            fmt = lambda _1,_2 : _fmt
+                        else:
+                            fmt = _fmt
+                        output.append('  %-*s : %s' % (
+                            keylen, name, fmt(self.fields[name],self)
+                        ))
+        output.append('}')
+        
+        return '\n'.join(output)
+    
+    def _init_fields(self, mv):
+        self.fields,_ = self.set_fields(mv)
+    
+    def _after_init(self):
         # Implemented by derived class
         pass
     
     @classmethod
-    def _init_this_type(cls):
+    def _before_init(cls):
         # Implemented by derived class such BlkPtr
         pass
     
@@ -321,44 +377,35 @@ class CStruct(object):
         return self._endian
     
     @classmethod
-    def offsetof(cls, field, verify=False):
-        off = 0
-        for name,sz,_,_ in cls.FIELDS:
-            if name == field:
-                return off
-            off += sz
+    def indexof(cls, field, field_def=None, verify=False):
+        idx = 0
+        for entry in cls._get_field_def(field_def):
+            if entry[0] == field:
+                return idx
+            idx += 1
         
         if verify:
             raise Exception("Field name '%s' not found" % field)
-        return off
+        return -1
     
     @classmethod
-    def sizeof(cls):
-        return sum([f[1] for f in cls.FIELDS])
+    def offsetof(cls, field, field_def=None, verify=False):
+        field_def = cls._get_field_def(field_def)
+        idx = cls.indexof(field, field_def=field_def, verify=verify)
+        if idx >= 0:
+            field_def = field_def[:idx]
+        return cls.sizeof(field_def=field_def)
     
-    def do_format(self, checker=None, keylen=None):
-        if keylen is None:
-            keylen = max([ len(f[0]) for f in self.FIELDS ])
-        output = []
-        
-        output.append(self.STRUCT_NAME + ' {')
-        for f in self.FIELDS:
-            if not checker or checker(f):
-                name,_,_,_fmt = f
-                if _fmt in self.FORMAT_TABLE:
-                    fmt = self.FORMAT_TABLE[_fmt]
-                elif isinstance(_fmt,str):
-                    fmt = lambda _1,_2 : _fmt
-                else:
-                    fmt = _fmt
-                output.append('  %-*s : %s' % (
-                    keylen, name, fmt(self.fields[name],self)
-                ))
-        output.append('}')
-        
-        return '\n'.join(output)
+    @classmethod
+    def sizeof(cls, field_def=None):
+        return sum([f[1] for f in cls._get_field_def(field_def)])
+    
+    @classmethod
+    def _get_field_def(cls, field_def):
+        if field_def is None:
+            field_def = cls.FIELDS
+        return field_def
     
     def __str__(self):
         return self.do_format()
-    
     __repr__ = __str__
