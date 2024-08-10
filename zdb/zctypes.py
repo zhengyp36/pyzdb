@@ -11,7 +11,7 @@ class DVA(CStruct):
         bitfields = {
             'asize'  : [ 0,  0, 24 ],
             'grid'   : [ 0, 24,  8 ],
-            'vdev'   : [ 0, 32, 32 ],
+            'vdev'   : [ 0, 32, 32 ], # TODO: vdev=dva_word[0][32:32+24?]
             'offset' : [ 1,  0, 63 ],
             'gang'   : [ 1, 63,  1 ],
         }
@@ -129,6 +129,28 @@ class BlkPtr(CStruct):
             ))
         
         return '{%s}<%s>' % ('|'.join(output), hex(value).strip('L'))
+    
+    def diskLocation(self, shift=9, diskOff=4*1024*1024):
+        assert(not self.embed)
+        
+        dva_arr,idx = [],0
+        for dva in self.blk_dva:
+            if dva.asize:
+                dva_arr.append({
+                    'index'  : idx,
+                    'vdev'   : dva.vdev,
+                    'offset' : diskOff + (dva.offset << shift),
+                    'asize'  : dva.asize << shift,
+                    'gang'   : dva.gang,
+                    'grid'   : dva.grid,
+                })
+            idx += 1
+        
+        return {
+            'dva'   : dva_arr,
+            'psize' : (self.psize + 1) << shift,
+            'lsize' : (self.lsize + 1) << shift,
+        }
     
     def __str__(self):
         if self.embed:
@@ -323,4 +345,25 @@ convert('dmu_object_type_t.txt', 'dmu_object_type_t.out.txt')
         [ 'uint64_enc_metadata',  'DMU_OTN_UINT64_ENC_METADATA', DMU_OT(DMU_BSWAP_UINT64, B_TRUE, B_TRUE)   ],
         [ 'zap_enc_data',         'DMU_OTN_ZAP_ENC_DATA',        DMU_OT(DMU_BSWAP_ZAP, B_FALSE, B_TRUE)     ],
         [ 'zap_enc_metadata',     'DMU_OTN_ZAP_ENC_METADATA',    DMU_OT(DMU_BSWAP_ZAP, B_TRUE, B_TRUE)      ],
+    ]
+
+@EnumType
+class ZioCkSumType(object):
+    '''Imported from C-Enum: enum zio_checksum'''
+    TABLE = [
+        [ 'inherit',     'ZIO_CHECKSUM_INHERIT',       0    ],
+        [ 'on',          'ZIO_CHECKSUM_ON',            None ],
+        [ 'off',         'ZIO_CHECKSUM_OFF',           None ],
+        [ 'label',       'ZIO_CHECKSUM_LABEL',         None ],
+        [ 'gang_header', 'ZIO_CHECKSUM_GANG_HEADER',   None ],
+        [ 'zilog',       'ZIO_CHECKSUM_ZILOG',         None ],
+        [ 'flether_2',   'ZIO_CHECKSUM_FLETCHER_2',    None ],
+        [ 'flether_4',   'ZIO_CHECKSUM_FLETCHER_4',    None ],
+        [ 'sha256',      'ZIO_CHECKSUM_SHA256',        None ],
+        [ 'zilog2',      'ZIO_CHECKSUM_ZILOG2',        None ],
+        [ 'noparity',    'ZIO_CHECKSUM_NOPARITY',      None ],
+        [ 'sha512',      'ZIO_CHECKSUM_SHA512',        None ],
+        [ 'skein',       'ZIO_CHECKSUM_SKEIN',         None ],
+        [ 'edonr',       'ZIO_CHECKSUM_EDONR',         None ],
+        [ 'blake3',      'ZIO_CHECKSUM_BLAKE3',        None ],
     ]
