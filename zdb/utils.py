@@ -262,9 +262,9 @@ class CStruct(object):
     STRUCT_NAME = ''
     FIELDS = []
     
-    conv_skip     = lambda bytes, endian : (
-        None
-    )
+    conv_skip = lambda bytes, endian : None
+    conv_byte = lambda bytes, endian : bytearray(bytes)
+    
     conv_unsigned = lambda bytes, endian : (
         Int.from_bytes(bytes, endian=endian,signed=False)
     )
@@ -278,11 +278,10 @@ class CStruct(object):
     CONVERT_TABLE = {
         '.'         : conv_skip,
         'SKIP'      : conv_skip,
-        
+        'byte'      : conv_byte,
         'u8'        : conv_unsigned,
         'u16'       : conv_unsigned,
         'u64'       : conv_unsigned,
-        
         'u8.array'  : conv_array_u8,
         'u64.array' : conv_array_u64,
     }

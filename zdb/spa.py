@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 
+from .dmu import *
 from .vdev import *
 from .zctypes import *
 from .utils import MagicError
@@ -13,6 +14,15 @@ class Spa(object):
     def open(self):
         self.uberblock = self.sel_ub()
         assert(self.uberblock)
+        
+        self.rootbp = self.uberblock.ub_rootbp
+        if self.rvd.child[0].type == 'disk':
+            self.reader = BlkPtrReader(self.rvd)
+            self.meta_os = ObjSetPhys(self.reader.read(self.rootbp))
+        else:
+            self.reader = None
+            self.meta_os = None
+        
         return True
     
     def sel_ub(self):

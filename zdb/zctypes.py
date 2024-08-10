@@ -166,6 +166,8 @@ class BlkPtr(CStruct):
     
     __repr__ = __str__
 
+BLKPTR_LEN = BlkPtr.sizeof()
+
 class UberBlock(CStruct):
     STRUCT_NAME = 'uberblock_t'
     FIELDS = [
@@ -196,31 +198,6 @@ class UberBlock(CStruct):
         self.set_fields(bytes)
         assert(self.ub_magic == self.UBERBLOCK_MAGIC)
         assert(self.endian == self.ub_rootbp.endian)
-
-class DNodePhys(CStruct):
-    blkptr_conv = BlkPtr.convert_method(count=1)
-    
-    STRUCT_NAME = 'dnode_phys_t'
-    FIELDS = [
-        [ 'dn_type',           1, 'u8',        'str' ],
-        [ 'dn_indblkshift',    1, 'u8',        'str' ],
-        [ 'dn_nlevels',        1, 'u8',        'str' ],
-        [ 'dn_nblkptr',        1, 'u8',        'str' ],
-        [ 'dn_bonustype',      1, 'u8',        'str' ],
-        [ 'dn_checksum',       1, 'u8',        'str' ],
-        [ 'dn_compress',       1, 'u8',        'str' ],
-        [ 'dn_flags',          1, 'u8',        'hex' ], # DNFT.* or DNODE_FLAG_*
-        [ 'dn_datablkszsec',   2, 'u16',       'str' ],
-        [ 'dn_bonuslen',       2, 'u16',       'str' ],
-        [ 'dn_extra_slots',    1, 'u8',        'str' ],
-        [ 'dn_pad2',           3, 'u8.array',  'str' ],
-        [ 'dn_maxblkid',       8, 'u64',       'str' ],
-        [ 'dn_used',           8, 'u64',       'str' ],
-        [ 'dn_pad3',          32, 'u64.array', 'str' ],
-        [ 'dn_blkptr',       128, blkptr_conv, '--'  ],
-        [ 'dn_bonus',        192, 'SKIP',      '--'  ],
-        [ 'dn_spill',        128, 'SKIP',      '--'  ],
-    ]
 
 @EnumType
 class DMUOT(object):
@@ -393,3 +370,125 @@ class ZioCkSumType(object):
         [ 'edonr',       'ZIO_CHECKSUM_EDONR',         None ],
         [ 'blake3',      'ZIO_CHECKSUM_BLAKE3',        None ],
     ]
+
+@EnumType
+class DNF(object):
+    '''DNF is dnode-flag'''
+    TABLE = [
+        [ 'used_bytes',            'DNODE_FLAG_USED_BYTES',            (1 << 0) ],
+        [ 'userused_accounted',    'DNODE_FLAG_USERUSED_ACCOUNTED',    (1 << 1) ],
+        [ 'crypt_portable',        'DNODE_CRYPT_PORTABLE_FLAGS_MASK',  (1 << 2) ],
+        [ 'spill_blkptr',          'DNODE_FLAG_SPILL_BLKPTR',          (1 << 2) ],
+        [ 'userobjused_accounted', 'DNODE_FLAG_USEROBJUSED_ACCOUNTED', (1 << 3) ],
+    ]
+    
+    def has(self, flag):
+        if (int(self) & flag) != 0:
+            return True
+        else:
+            return False
+
+class DNodePhys(CStruct):
+    blkptr_conv = BlkPtr.convert_method(count=1)
+    
+    STRUCT_NAME = 'dnode_phys_t'
+    FIELDS = [
+        [ 'dn_type',           1, 'u8',        'str' ],
+        [ 'dn_indblkshift',    1, 'u8',        'str' ],
+        [ 'dn_nlevels',        1, 'u8',        'str' ],
+        [ 'dn_nblkptr',        1, 'u8',        'str' ],
+        [ 'dn_bonustype',      1, 'u8',        'str' ],
+        [ 'dn_checksum',       1, 'u8',        'str' ],
+        [ 'dn_compress',       1, 'u8',        'str' ],
+        [ 'dn_flags',          1, 'u8',        'hex' ], # DNFT.* or DNODE_FLAG_*
+        [ 'dn_datablkszsec',   2, 'u16',       'str' ],
+        [ 'dn_bonuslen',       2, 'u16',       'str' ],
+        [ 'dn_extra_slots',    1, 'u8',        'str' ],
+        [ 'dn_pad2',           3, 'u8.array',  'str' ],
+        [ 'dn_maxblkid',       8, 'u64',       'str' ],
+        [ 'dn_used',           8, 'u64',       'str' ],
+        [ 'dn_pad3',          32, 'u64.array', 'str' ],
+        [ 'dn_blkptr',       128, blkptr_conv, '--'  ],
+        [ 'dn_bonus',        192, 'SKIP',      '--'  ], # the size changable
+        [ 'dn_spill',        128, 'SKIP',      '--'  ],
+    ]
+    
+    # 
+    # The tail region is 448 bytes for a 512 byte dnode, and
+    # correspondingly larger for larger dnode sizes. The spill
+    # block pointer, when present, is always at the end of the tail
+    # region. There are three ways this space may be used, using
+    # a 512 byte dnode for this diagram:
+    # 
+    # 0       64      128     192     256     320     384     448 (offset)
+    # +---------------+---------------+---------------+-------+
+    # | dn_blkptr[0]  | dn_blkptr[1]  | dn_blkptr[2]  | /     |
+    # +---------------+---------------+---------------+-------+
+    # | dn_blkptr[0]  | dn_bonus[0..319]                      |
+    # +---------------+-----------------------+---------------+
+    # | dn_blkptr[0]  | dn_bonus[0..191]      | dn_spill      |
+    # +---------------+-----------------------+---------------+
+    #
+    
+    def _do_init(self, bytes):
+        assert(len(bytes) == self.sizeof())
+        self.set_fields(bytes)
+        
+        assert(self.dn_nblkptr >= 1)
+        assert(len(self.dn_blkptr) == 1)
+        
+        blkptr_sz = BlkPtr.sizeof()
+        if self.dn_nblkptr > 1:
+            off = self.offsetof('dn_blkptr')
+            self.dn_blkptr += [
+                BlkPtr(bytes[off:off+i*blkptr_sz])
+                for i in range(self.dn_nblkptr)[1:]
+            ]
+        else:
+            bonus_off = self.offsetof('dn_bonus')
+            if DNF.spill_blkptr.has(dn_flags):
+                self.dn_bonus = bytearray(bytes[bonus_off:bonus_off+192])
+                spill_off = self.offsetof('dn_spill')
+                self.dn_spill = BlkPtr(bytes[spill_off:])
+            else:
+                self.dn_bonus = bytearray(bytes[bonus_off:bonus_off+320])
+        
+        for blkptr in self.dn_blkptr:
+            assert(blkptr.endian == self.endian)
+DNODE_PHYS_LEN = DNodePhys.sizeof()
+
+class ZilHdr(CStruct):
+    STRUCT_NAME = 'zil_header_t'
+    FIELDS = [
+        [ 'zh_claim_txg',     8, 'u64',        'str' ],
+        [ 'zh_replay_seq',    8, 'u64',        'str' ],
+        [ 'zh_log',         128, BlkPtr,       'str' ],
+        [ 'zh_claim_blk_seq', 8, 'u64',        'str' ],
+        [ 'zh_flags',         8, 'u64',        'str' ],
+        [ 'zh_claim_lr_seq',  8, 'u64',        'str' ],
+        [ 'zh_pad',          24, 'u64.array',  'str' ],
+    ]
+ZIL_HDR_LEN = ZilHdr.sizeof()
+
+class ObjSetPhys(CStruct):
+    OS_PAD0_LEN = 2048 - DNODE_PHYS_LEN*3 - ZIL_HDR_LEN - 2*8 - 2*32
+    OS_PAD1_LEN = 4096 - 2048 - DNODE_PHYS_LEN
+    
+    STRUCT_NAME = 'objset_phys_t'
+    FIELDS = [
+        [ 'os_meta_dnode',        DNODE_PHYS_LEN, DNodePhys,    '<dnode>'  ],
+        [ 'os_zil_header',        ZIL_HDR_LEN,    ZilHdr,       '<zilhdr>' ],
+        [ 'os_type',              8,              'u64',        'str'      ],
+        [ 'os_flags',             8,              'u64',        'hex'      ],
+        [ 'os_portable_mac',      32,             'u8.array',   '<mac>'    ],
+        [ 'os_local_mac',         32,             'u8.array',   '<mac>'    ],
+        [ 'os_pad0',              OS_PAD0_LEN,    'SKIP',       '--'       ],
+        [ 'os_userused_dnode',    DNODE_PHYS_LEN, 'SKIP',       '--'       ],
+        [ 'os_groupused_dnode',   DNODE_PHYS_LEN, 'SKIP',       '--'       ],
+        [ 'os_projectused_dnode', DNODE_PHYS_LEN, 'SKIP',       '--'       ],
+        [ 'os_pad1',              OS_PAD1_LEN,    'SKIP',       '--'       ],
+    ]
+    
+    def _do_init(self, bytes):
+        self.set_fields(bytes)
+        # TODO: resolve fields: os_<user|group|project>used_dnode
