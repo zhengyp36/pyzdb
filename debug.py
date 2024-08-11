@@ -38,6 +38,9 @@ if __name__ == '__main__':
         for name in argv:
             spa = mgr.open_pool(name)
             if spa:
+                spa.meta_os.meta_dn.read_block(0)
+                spa.meta_os.meta_dn.read(0,16*1024*2)
+                spa.meta_os.get_obj(1)
                 debug(spa)
             else:
                 print('Failed to open pool %s' % name)

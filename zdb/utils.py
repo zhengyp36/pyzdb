@@ -4,17 +4,28 @@ import sys
 import struct
 import inspect
 
-class MagicError(Exception):
-    def __init__(self, source, value=None):
-        super(type(self),self).__init__('MagicError')
-        self.source = str(source)
-        self.value = value
+def Error(ErrorType):
+    class ErrorImpl(Exception):
+        def __init__(self, source, value=None):
+            super(type(self),self).__init__(ErrorType.__name__)
+            self.source = str(source)
+            self.value = value
+        
+        def __str__(self):
+            s = '%s from %s' % (str(self.args[0]), self.source)
+            if self.value is not None:
+                s += ', value={%s}' % str(self.value)
+            return s
     
-    def __str__(self):
-        s = '%s from %s' % (str(self.args[0]), self.source)
-        if self.value is not None:
-            s += ', value={%s}' % str(self.value)
-        return s
+    return ErrorImpl
+
+@Error
+class MagicError(object):
+    pass
+
+@Error
+class HoleError(object):
+    pass
 
 def EnumType(TypeDef):
     class TypeImplement(TypeDef):
@@ -161,7 +172,7 @@ class StorageSize(object):
         else:
             return ('%.2f' % sz) + self.UNITS[idx]
     
-    __repr__ = __str__
+    # __repr__ = __str__
 
 class Int(object):
     FORMAT_ENDIAN = {
@@ -391,4 +402,7 @@ class CStruct(object):
     
     def __str__(self):
         return self.do_format()
-    __repr__ = __str__
+    # __repr__ = __str__
+    
+    def dump(self):
+        print(str(self))

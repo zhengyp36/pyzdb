@@ -15,12 +15,13 @@ class Spa(object):
         self.uberblock = self.sel_ub()
         assert(self.uberblock)
         
+        self.reader = BlkPtrReader(self.rvd)
         self.rootbp = self.uberblock.ub_rootbp
+        self.prtmgr = DmuPrtMgr(self)
+        
         if self.rvd.child[0].type == 'disk':
-            self.reader = BlkPtrReader(self.rvd)
-            self.meta_os = ObjSetPhys(self.reader.read(self.rootbp))
+            self.meta_os = ObjSet(self.prtmgr.uberblock, self.rootbp)
         else:
-            self.reader = None
             self.meta_os = None
         
         return True

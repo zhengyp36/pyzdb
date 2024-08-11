@@ -28,6 +28,10 @@ class DVA(CStruct):
         raw = ':'.join([hex(w)[2:] for w in self.dva_word])
         return 'v%X.o%x.s%x.G%x.g%x<%s>' % (
             self.vdev, self.offset, self.asize, self.gang, self.grid, raw)
+    
+    @property
+    def empty(self):
+        return self.dva_word[0] == 0 and self.dva_word[1] == 0
 
 class ZioCkSum(CStruct):
     STRUCT_NAME = 'zio_cksum_t'
@@ -154,6 +158,10 @@ class BlkPtr(CStruct):
             'lsize' : (self.lsize + 1) << shift,
         }
     
+    @property
+    def is_hole(self):
+        return not self.embed and self.blk_dva[0].empty
+    
     def __str__(self):
         if self.embed:
             fields = ['blk_prop','blk_birth']
@@ -164,7 +172,7 @@ class BlkPtr(CStruct):
         
         return self.do_format(checker=checker, keylen=keylen)
     
-    __repr__ = __str__
+    # __repr__ = __str__
 
 BLKPTR_LEN = BlkPtr.sizeof()
 
@@ -389,6 +397,14 @@ class DNF(object):
             return False
 
 class DNodePhys(CStruct):
+    @property
+    def blksz(self):
+        return int(512 * self.dn_datablkszsec)
+    
+    @property
+    def indblksz(self):
+        return int(1 << self.dn_indblkshift)
+    
     blkptr_conv = BlkPtr.convert_method(count=1)
     
     STRUCT_NAME = 'dnode_phys_t'

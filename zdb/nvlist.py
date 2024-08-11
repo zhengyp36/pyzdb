@@ -68,7 +68,7 @@ class NVList(object):
     
     def __str__(self):
         return '{\n' + self._format(indent=1, tab=2*' ') + '\n}'
-    __repr__ = __str__
+    # __repr__ = __str__
     
     def __bool__(self):
         return not not self._items
