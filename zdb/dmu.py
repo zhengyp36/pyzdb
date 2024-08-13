@@ -85,13 +85,21 @@ class ObjSet(object):
             self.phys.os_meta_dnode
         )
     
-    def get_obj(self, id):
+    def get(self, id, type=None):
+        if type is None:
+            type = DNode
+            detail = None
+        else:
+            assert(issubclass(type,DNode))
+            detail = type.__name__
+        
         dnsz = DNodePhys.sizeof()
         assert(id > 0)
         assert(dnsz == 512)
+        
         data = self.meta_dn.read(id * dnsz, dnsz)
-        return DNode(
-            self.dmup.spa.prtmgr.get('os->dn',self),
+        return type(
+            self.dmup.spa.prtmgr.get('os->dn',self,detail=detail),
             DNodePhys(data)
         )
 
@@ -137,3 +145,17 @@ class DNode(object):
             blkptr = BlkPtr(data[blkid<<BLKPTR_SHFT : (blkid+1)<<BLKPTR_SHFT])
         
         return blkptr
+
+class Zap(DNode):
+    def __init__(self, dmup, phys):
+        super(type(self),self).__init__(dmup, phys)
+        self.zap_phys = ZapPhys(self.read_block(0))
+        self.load_table()
+    
+    def load_table(self):
+        zap_phys = self.zap_phys
+        if zap_phys.table_embeded:
+            self.table = zap_phys.table
+        else:
+            raise Unsupported(type(zap_phys), value='External Pointer Table')
+            self.table = None

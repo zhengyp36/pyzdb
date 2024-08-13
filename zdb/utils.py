@@ -27,6 +27,10 @@ class MagicError(object):
 class HoleError(object):
     pass
 
+@Error
+class Unsupported(object):
+    pass
+
 def EnumType(TypeDef):
     class TypeImplement(TypeDef):
         def __init__(self, entry, enum_value):
@@ -208,6 +212,10 @@ class Int(object):
     
     def bit_field(self, start, length):
         return (self._value >> start) & ((1 << length) - 1)
+    
+    def highbit(self):
+        s = (bin(self._value)[2:].strip('L')+'L').strip('0')[:-1]
+        return len(s)
 
 class XDR(object):
     def __init__(self, bytes):
@@ -300,7 +308,8 @@ class CStruct(object):
     FORMAT_TABLE = {
         'str'     : lambda val,inst : str(val),
         'hex'     : lambda val,inst : hex(val).strip('L'),
-        'magic32' : lambda val,inst : '0x' + hex(val)[2:].zfill(8),
+        'magic32' : lambda val,inst : '0x' + hex(val).strip('L')[2:].zfill(8),
+        'magic64' : lambda val,inst : '0x' + hex(val).strip('L')[2:].zfill(16),
     }
     
     @classmethod

@@ -508,3 +508,84 @@ class ObjSetPhys(CStruct):
     def _do_init(self, bytes):
         self.set_fields(bytes)
         # TODO: resolve fields: os_<user|group|project>used_dnode
+
+@EnumType
+class ZBT(object):
+    '''Imported from C-Macro: ZBT_* and ZBT is ZapBlkType'''
+    TABLE = [
+        [ 'macro',  'ZBT_MICRO',  ((1 << 63) + 3) ],
+        [ 'header', 'ZBT_HEADER', ((1 << 63) + 1) ],
+        [ 'leaf',   'ZBT_LEAF',   ((1 << 63) + 0) ],
+    ]
+
+@EnumType
+class MatchType(object):
+    '''Imported from C-Enum matchtype_t defined in zap.h'''
+    TABLE = [
+        [ 'normalize', 'MT_NORMALIZE',  (1 << 0) ],
+        [ 'matchcase', 'MT_MATCH_CASE', (1 << 1) ],
+    ]
+
+@EnumType
+class ZapF(object):
+    '''Imported from C-Enum zfs_zap_flags_t or zap_flags_t'''
+    TABLE = [
+        [ 'hash64',  'ZAP_FLAG_HASH64',         (1 << 0) ],
+        [ 'u64key',  'ZAP_FLAG_UINT64_KEY',     (1 << 1) ],
+        [ 'prehash', 'ZAP_FLAG_PRE_HASHED_KEY', (1 << 2) ],
+    ]
+
+class ZapTblPhys(CStruct):
+    '''Imported from C-Struct zap_table_phys_t in zap_phys_t'''
+    FIELDS = [
+        [ 'zt_blk',         8, 'u64', 'str' ],
+        [ 'zt_numblks',     8, 'u64', 'str' ],
+        [ 'zt_shift',       8, 'u64', 'str' ],
+        [ 'zt_nextblk',     8, 'u64', 'str' ],
+        [ 'zt_blks_copied', 8, 'u64', 'str' ],
+    ]
+
+class ZapPhys(CStruct):
+    STRUCT_NAME = 'zap_phys_t'
+    FIELDS = [
+        [ 'zap_block_type',   8, 'u64',      'magic64'  ], # ZBT
+        [ 'zap_magic',        8, 'u64',      'magic64'  ],
+        [ 'zap_ptrtbl',      40, ZapTblPhys, '--'       ],
+        [ 'zap_freeblk',      8, 'u64',      'str'      ],
+        [ 'zap_num_leafs',    8, 'u64',      'str'      ],
+        [ 'zap_num_entries',  8, 'u64',      'str'      ],
+        [ 'zap_salt',         8, 'u64',      'str'      ],
+        [ 'zap_normflags',    8, 'u64',      'str'      ],
+        [ 'zap_flags',        8, 'u64',      'str'      ], # ZapF
+    ]
+    MAGIC = 0x2F52AB2AB # zfs-zap-zap
+    
+    def _do_init(self, bytes):
+        zbt_value = Int.from_bytes(bytes[0:8])
+        magic_value = Int.from_bytes(bytes[8:16])
+        
+        try:
+            zbt = ZBT.from_int(zbt_value)
+        except:
+            raise MagicError(type(self), value='INV_ZBT{%x}' % zbt_value)
+        
+        # TODO: implement MacroZap. Now only FatZap is implemented.
+        if zbt_value != int(ZBT.header):
+            raise Unsupported(type(self),
+                value='INV_ZBT_HEADER{%x}' % zbt_value)
+        
+        self.set_fields(bytes)
+        
+        if self.table_embeded:
+            assert(self.zap_ptrtbl.zt_blk == 0)
+            # Every entry contains a number of uint64. The size of zap-block
+            # is 16KB, and half i.e. 8KB is used for table.
+            assert(self.zap_ptrtbl.zt_shift == 10)
+            off = len = 8 * (1 << self.zap_ptrtbl.zt_shift)
+            self.table = Int.from_bytes_to_list(bytes[off:off+len], int_size=8)
+        else:
+            self.table = None
+    
+    @property
+    def table_embeded(self):
+        return self.zap_ptrtbl.zt_numblks == 0
