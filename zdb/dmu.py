@@ -10,26 +10,33 @@ class BlkPtrReader(object):
         assert(self.rvd.opened)
     
     def read(self, blkptr, verify=False):
+        # TODO: verify whether all copies are same
+        
         if blkptr.is_hole:
             raise HoleError(type(self))
-        
-        assert(not blkptr.embed)
-        # TODO: verify whether all copies are same
         
         compressor = Compressor.from_int(blkptr.compr)
         # TODO: what if read content not compressed?
         assert(compressor.supported)
         
         loc = blkptr.diskLocation()
-        assert(len(loc['dva']) > 0)
-        dva = loc['dva'][0]
+        if not blkptr.embed:
+            assert(len(loc['dva']) > 0)
+            dva = loc['dva'][0]
+            
+            vd  = self.rvd.child[dva['vdev']]
+            # TODO: how to read disk of raidz or other formats
+            assert(vd.is_leaf() and vd.type == 'disk')
+            
+            raw = vd.disk.read(dva['offset'], dva['asize'])
+        else:
+            raw = self.read_embed(blkptr, loc)
         
-        vd  = self.rvd.child[dva['vdev']]
-        # TODO: how to read disk of raidz or other formats
-        assert(vd.is_leaf() and vd.type == 'disk')
-        
-        raw = vd.disk.read(dva['offset'], dva['asize'])
         return compressor.decompress(raw, loc['lsize'])
+    
+    def read_embed(self, blkptr, loc):
+        assert(blkptr.endian == Endian.little == Endian.default)
+        return blkptr.bytes[0:loc['psize']]
 
 class DmuPrt(object):
     '''DMU-Parent'''
@@ -98,10 +105,13 @@ class ObjSet(object):
         assert(dnsz == 512)
         
         data = self.meta_dn.read(id * dnsz, dnsz)
-        return type(
+        obj = type(
             self.dmup.spa.prtmgr.get('os->dn',self,detail=detail),
             DNodePhys(data)
         )
+        setattr(obj, 'objid', id)
+        
+        return obj
 
 class DNode(object):
     def __init__(self, dmup, phys):
@@ -149,12 +159,32 @@ class DNode(object):
 class Zap(DNode):
     def __init__(self, dmup, phys):
         super(type(self),self).__init__(dmup, phys)
-        self.crc = Crc64Poly()
-        self.is_micro = False
-        self.zap_phys = ZapPhys(self.read_block(0))
+        self.crc = Crc64Poly
+        self.zap_phys = ZapPhys.from_bytes(self.read_block(0))
+        self.is_micro = self.zap_phys.is_micro
         self.load_table()
     
     def ls(self, keys=None, entries=None):
+        if self.is_micro:
+            return self.ls_mzap(keys=keys, entries=entries)
+        else:
+            return self.ls_fat(keys=keys, entries=entries)
+    
+    def ls_mzap(self, keys=None, entries=None):
+        if keys is None:
+            names = []
+        else:
+            names = keys
+        
+        for chunk in self.zap_phys.mz_chunk:
+            if entries:
+                entries.append(chunk)
+            names.append(chunk.mze_name)
+        
+        if keys is None and entries is None:
+            print('\n'.join(names))
+    
+    def ls_fat(self, keys=None, entries=None):
         if keys is None:
             names = []
         else:
@@ -172,6 +202,13 @@ class Zap(DNode):
     
     def lookup(self, key, fmt=None):
         '''The argument fmt should be one of ['str','num',None]'''
+        if self.is_micro:
+            if fmt is not None:
+                assert(fmt == 'num')
+                return [self.zap_phys.items[key].mze_value]
+            else:
+                return self.zap_phys.items[key]
+        
         hash = self.hash(key)
         leaf = self.leaf(self.hash2blk(hash))
         
@@ -182,7 +219,7 @@ class Zap(DNode):
                 return self.deref_entry(leaf,le,fmt)
             id = le.le_next
         
-        return None
+        raise Exception('key{%s} not found' % key)
     
     def hashbits(self):
         if self.is_micro:
@@ -273,14 +310,8 @@ class Zap(DNode):
     def cursor_advance(self, cursor):
         cursor['cd'] += 1
     
-    def decode_str(self, bytes):
-        return {
-            '2' : lambda bin : str(bytearray(bin)),
-            '3' : lambda bin : bytearray(bin).decode('utf-8'),
-        }[sys.version[0]](bytes).strip('\x00')
-    
     def deref_entry_key(self, leaf, entry):
-        return self.decode_str(leaf.read(
+        return Str.decode(leaf.read(
             entry.le_name_chunk, entry.le_name_numints
         ))
     
@@ -292,7 +323,7 @@ class Zap(DNode):
         val_len = entry.le_value_intlen * entry.le_value_numints
         value = leaf.read(entry.le_value_chunk, val_len)
         if fmt == 'str':
-            value = self.decode_str(value)
+            value = Str.decode(value)
         elif fmt == 'num':
             value = Int.from_bytes_to_list(value,
                 int_size=entry.le_value_intlen, endian=Endian.big)
@@ -307,6 +338,9 @@ class Zap(DNode):
         }
     
     def load_table(self):
+        if self.is_micro:
+            return
+        
         if self.zap_phys.table_embeded:
             self.table = self.zap_phys.table
         else:
@@ -319,3 +353,10 @@ class Zap(DNode):
     
     def hash2blk(self, hash):
         return self.table[hash >> (64 - self.zap_phys.zap_ptrtbl.zt_shift)]
+
+class DslDir(DNode):
+    def __init__(self, dmup, phys):
+        super(type(self),self).__init__(dmup, phys)
+        assert(len(self.phys.dn_bonus) == DslDirPhys.sizeof())
+        self.dd_phys = DslDirPhys(self.phys.dn_bonus)
+        # TODO: ...

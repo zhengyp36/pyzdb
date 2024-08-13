@@ -17,6 +17,13 @@ def debug(spa):
     print(sep)
     print(spa.uberblock.ub_rootbp)
     print('')
+    
+    rds_obj = spa.objdir.lookup('root_dataset',fmt='num')['value'][0]
+    print('root_dataset objid = ' + str(rds_obj))
+    dn = spa.meta_os.get(rds_obj)
+    zap = spa.meta_os.get(spa.dsldir.dd_phys.dd_child_dir_zapobj,type=zdb.Zap)
+    zap.ls()
+    print('')
 
 if __name__ == '__main__':
     argv = sys.argv[1:]
@@ -38,9 +45,14 @@ if __name__ == '__main__':
         for name in argv:
             spa = mgr.open_pool(name)
             if spa:
-                spa.meta_os.meta_dn.read_block(0)
-                spa.meta_os.meta_dn.read(0,16*1024*2)
-                spa.meta_os.get(1,type=zdb.Zap)
                 debug(spa)
             else:
                 print('Failed to open pool %s' % name)
+
+else:
+    print('NAME=%s' % __name__)
+    disks = [ '/dev/sdh1' ]
+    mgr = zdb.SpaManager(disks)
+    spa = mgr.open_pool('poola')
+    zap = spa.meta_os.get(spa.dsldir.dd_phys.dd_child_dir_zapobj,type=zdb.Zap)
+    zap.ls()

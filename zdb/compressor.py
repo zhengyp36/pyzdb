@@ -57,6 +57,4 @@ class Compressor(object):
     
     def __check_supported(self):
         if not self.supported:
-            raise Exception('%s<%s,%d> is unsupported' % (
-                str(self), repr(self), int(self)
-            ))
+            raise utils.Unsupported(type(self), value=self)

@@ -8,11 +8,15 @@ def Error(ErrorType):
     class ErrorImpl(Exception):
         def __init__(self, source, value=None):
             super(type(self),self).__init__(ErrorType.__name__)
-            self.source = str(source)
+            self.source = source
             self.value = value
         
         def __str__(self):
-            s = '%s from %s' % (str(self.args[0]), self.source)
+            s = '%s from %s(%s)' % (
+                str(self.args[0]),
+                str(type(self.source)),
+                str(self.source)
+            )
             if self.value is not None:
                 s += ', value={%s}' % str(self.value)
             return s
@@ -178,8 +182,6 @@ class StorageSize(object):
             return str(int(sz)) + self.UNITS[idx]
         else:
             return ('%.2f' % sz) + self.UNITS[idx]
-    
-    # __repr__ = __str__
 
 class Int(object):
     FORMAT_ENDIAN = {
@@ -220,29 +222,42 @@ class Int(object):
         s = (bin(self._value)[2:].strip('L')+'L').strip('0')[:-1]
         return len(s)
 
-class Crc64Poly(object):
-    ZFS_CRC64_POLY = 0xC96C5795D7870F42
-    
-    def __init__(self):
-        def gen(n):
-            for i in range(8):
-                n = (n >> 1) ^ (-(n&1) & self.ZFS_CRC64_POLY)
-            return n
-        
-        self.table = [gen(i) for i in range(256)]
-        assert(self.table[128] == self.ZFS_CRC64_POLY)
-    
-    def hash(self, key, salt):
-        assert(isinstance(key,str))
-        ba = {
+class Str(object):
+    @classmethod
+    def encode(cls, s):
+        return {
             '2' : lambda s : bytearray(s),
             '3' : lambda s : bytearray(s.encode('utf-8')),
-        }[sys.version[0]](key)
-        
+        }[sys.version[0]](s)
+    
+    @classmethod
+    def decode(cls, bytes):
+        return {
+            '2' : lambda bin : str(bytearray(bin)),
+            '3' : lambda bin : bytearray(bin).decode('utf-8'),
+        }[sys.version[0]](bytes).strip('\x00')
+
+class Crc64Poly(object):
+    @classmethod
+    def hash(cls, key, salt):
+        cls._init_table()
+        assert(isinstance(key,str))
         h = salt
-        for i in ba:
-            h = (h >> 8) ^ self.table[(h^i)&0xFF]
+        for i in Str.encode(key):
+            h = (h >> 8) ^ cls._table[(h^i)&0xFF]
         return h
+    
+    @classmethod
+    def _init_table(cls):
+        if cls._table is None:
+            ZFS_CRC64_POLY = 0xC96C5795D7870F42
+            def gen(n):
+                for i in range(8):
+                    n = (n >> 1) ^ (-(n&1) & ZFS_CRC64_POLY)
+                return n
+            cls._table = [gen(i) for i in range(256)]
+            assert(cls._table[128] == ZFS_CRC64_POLY)
+    _table = None
 
 class XDR(object):
     def __init__(self, bytes):
@@ -272,10 +287,7 @@ class XDR(object):
     
     def read_str(self, return_encode_size=False):
         sz = self.read_int('u32')
-        val = {
-            '2' : lambda bin : str(bytearray(bin)),
-            '3' : lambda bin : bytearray(bin).decode('utf-8'),
-        }[sys.version[0]](self.pop(sz))
+        val = Str.decode(self.pop(sz))
         
         pad = Int(sz).roundup(4) - sz
         self.skip(pad)
@@ -301,7 +313,7 @@ class CStruct(object):
        --------------------------------------------------
     2. Titles for every row are name, size, converter and formatter,
        where the proto-type of converter is converter(bytes,endian) and
-       the formatter's formatter(val) where 'val' is CStruct().fields[name]
+       of formatter is formatter(val) where 'val' is CStruct().fields[name]
     
     Lookup zctypes.py for more details.
     '''
@@ -310,6 +322,7 @@ class CStruct(object):
     
     conv_skip = lambda bytes, endian : None
     conv_byte = lambda bytes, endian : bytearray(bytes)
+    conv_str  = lambda bytes, endian : Str.decode(bytes)
     
     conv_unsigned = lambda bytes, endian : (
         Int.from_bytes(bytes, endian=endian,signed=False)
@@ -325,6 +338,7 @@ class CStruct(object):
         '.'         : conv_skip,
         'SKIP'      : conv_skip,
         'byte'      : conv_byte,
+        'str'       : conv_str,
         'u8'        : conv_unsigned,
         'u16'       : conv_unsigned,
         'u32'       : conv_unsigned,
@@ -387,16 +401,15 @@ class CStruct(object):
             name,sz,_,_fmt = f
             if name != '.':
                 if not checker or checker(f):
-                    if name != '.':
-                        if _fmt in self.FORMAT_TABLE:
-                            fmt = self.FORMAT_TABLE[_fmt]
-                        elif isinstance(_fmt,str):
-                            fmt = lambda _1,_2 : _fmt
-                        else:
-                            fmt = _fmt
-                        output.append('  %-*s : %s' % (
-                            keylen, name, fmt(self.fields[name],self)
-                        ))
+                    if _fmt in self.FORMAT_TABLE:
+                        fmt = self.FORMAT_TABLE[_fmt]
+                    elif isinstance(_fmt,str):
+                        fmt = lambda _1,_2 : _fmt
+                    else:
+                        fmt = _fmt
+                    output.append('  %-*s : %s' % (
+                        keylen, name, fmt(self.fields[name],self)
+                    ))
         output.append('}')
         
         return '\n'.join(output)
@@ -438,7 +451,16 @@ class CStruct(object):
     
     def __str__(self):
         return self.do_format()
-    # __repr__ = __str__
     
     def dump(self):
         print(str(self))
+
+class ZapNameTable(object):
+    TABLE = []
+    
+    @classmethod
+    def ls(cls):
+        l0 = max([len(str(i[0])) for i in cls.TABLE])
+        l1 = max([len(str(i[1])) for i in cls.TABLE])
+        for item in cls.TABLE:
+            print('%-*s : %-*s' % (l0, str(item[0]), l1, str(item[1])))

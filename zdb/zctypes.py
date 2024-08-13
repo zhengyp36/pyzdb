@@ -90,6 +90,9 @@ class BlkPtr(CStruct):
         self._set_endian(bytes)
         self.set_fields(bytes)
         self._set_prop_fields()
+        
+        if self.embed:
+            self._copy_embeded_data(bytes)
     
     @classmethod
     def _init_once(cls):
@@ -121,6 +124,18 @@ class BlkPtr(CStruct):
         
         assert(self.endian == Endian.from_int(self.E))
     
+    def _copy_embeded_data(self, bytes):
+        self.bytes = bytearray(self.sizeof())
+        array = memoryview(self.bytes)
+        
+        src,dst = 0,0
+        for entry in self.FIELDS:
+            name,sz = entry[0:2]
+            if name not in ['blk_prop','blk_birth']:
+                array[dst:dst+sz] = bytes[src:src+sz]
+                dst += sz
+            src += sz
+    
     @staticmethod
     def __blk_prop_formatter(value, inst):
         if inst.embed:
@@ -137,20 +152,22 @@ class BlkPtr(CStruct):
         return '{%s}<%s>' % ('|'.join(output), hex(value).strip('L'))
     
     def diskLocation(self, shift=9, diskOff=4*1024*1024):
-        assert(not self.embed)
-        
-        dva_arr,idx = [],0
-        for dva in self.blk_dva:
-            if dva.asize:
-                dva_arr.append({
-                    'index'  : idx,
-                    'vdev'   : dva.vdev,
-                    'offset' : diskOff + (dva.offset << shift),
-                    'asize'  : dva.asize << shift,
-                    'gang'   : dva.gang,
-                    'grid'   : dva.grid,
-                })
-            idx += 1
+        if not self.embed:
+            dva_arr,idx = [],0
+            for dva in self.blk_dva:
+                if dva.asize:
+                    dva_arr.append({
+                        'index'  : idx,
+                        'vdev'   : dva.vdev,
+                        'offset' : diskOff + (dva.offset << shift),
+                        'asize'  : dva.asize << shift,
+                        'gang'   : dva.gang,
+                        'grid'   : dva.grid,
+                    })
+                idx += 1
+        else:
+            shift = 0
+            dva_arr = None
         
         return {
             'dva'   : dva_arr,
@@ -171,10 +188,6 @@ class BlkPtr(CStruct):
             checker,keylen = None,None
         
         return self.do_format(checker=checker, keylen=keylen)
-    
-    # __repr__ = __str__
-
-BLKPTR_LEN = BlkPtr.sizeof()
 
 class UberBlock(CStruct):
     STRUCT_NAME = 'uberblock_t'
@@ -455,13 +468,15 @@ class DNodePhys(CStruct):
                 for i in range(self.dn_nblkptr)[1:]
             ]
         else:
-            bonus_off = self.offsetof('dn_bonus')
-            if DNF.spill_blkptr.has(dn_flags):
-                self.dn_bonus = bytearray(bytes[bonus_off:bonus_off+192])
+            if DNF.spill_blkptr.has(self.dn_flags):
                 spill_off = self.offsetof('dn_spill')
                 self.dn_spill = BlkPtr(bytes[spill_off:])
-            else:
-                self.dn_bonus = bytearray(bytes[bonus_off:bonus_off+320])
+            
+            if self.dn_bonuslen > 0:
+                bonus_off = self.offsetof('dn_bonus')
+                self.dn_bonus = bytearray(bytes[
+                    bonus_off : bonus_off+self.dn_bonuslen
+                ])
         
         for blkptr in self.dn_blkptr:
             assert(blkptr.is_hole or blkptr.endian == self.endian)
@@ -545,6 +560,43 @@ class ZapChunkType(object):
         [ 'array', 'ZAP_CHUNK_ARRAY', 251 ],
     ]
 
+class MZapEnt(CStruct):
+    STRUCT_NAME = 'mzap_ent_phys_t'
+    FIELDS = [
+        [ 'mze_value', 8, 'u64',  'str' ],
+        [ 'mze_cd',    4, 'u32',  'str' ],
+        [ 'mze_pad',   2, 'SKIP', 'str' ],
+        [ 'mze_name', 50, 'str',  'str' ],
+        [ 'mze_hash',  0, 'SKIP', 'str' ],
+    ]
+
+class MZapPhys(CStruct):
+    STRUCT_NAME = 'mzap_phys_t'
+    FIELDS = [
+        [ 'mz_block_type', 8, 'u64',       'magic64' ], # ZBT
+        [ 'mz_salt',       8, 'u64',       'str'     ],
+        [ 'mz_normflags',  8, 'u64',       'str'     ],
+        [ 'mz_pad',       40, 'u64.array', 'str'     ],
+        [ 'mz_chunk',     64, 'SKIP',      '--'      ],
+    ]
+    
+    def _do_init(self, bytes):
+        self.set_fields(bytes)
+        assert(self.mz_block_type == int(ZBT.micro))
+        
+        st_sz, sz = self.sizeof(), self.FIELDS[self.indexof('mz_chunk')][1]
+        count = (len(bytes) - st_sz) // sz + 1
+        
+        self.mz_chunk,self.items = [],{}
+        for chunk in MZapEnt.convert_method(count=count)(bytes[st_sz-sz:]):
+            if chunk.mze_name != '':
+                chunk.mze_hash = Crc64Poly.hash(chunk.mze_name, self.mz_salt)
+                self.mz_chunk.append(chunk)
+                self.items[chunk.mze_name] = chunk
+        
+        self.mz_chunk.sort(key=lambda chunk : chunk.mze_hash)
+        self.is_micro = True
+
 class ZapTblPhys(CStruct):
     '''Imported from C-Struct zap_table_phys_t in zap_phys_t'''
     FIELDS = [
@@ -570,7 +622,22 @@ class ZapPhys(CStruct):
     ]
     MAGIC = 0x2F52AB2AB # zfs-zap-zap
     
+    @classmethod
+    def from_bytes(cls, bytes, endian=Endian.default):
+        zbt_value = Int.from_bytes(bytes[0:8])
+        try:
+            zbt = ZBT.from_int(zbt_value)
+        except:
+            raise MagicError(type(self), value='INV_ZBT{%x}' % zbt_value)
+        
+        if zbt == ZBT.header:
+            return cls(bytes, endian=endian)
+        else:
+            return MZapPhys(bytes, endian=endian)
+    
     def _do_init(self, bytes):
+        self.is_micro = False
+        
         zbt_value = Int.from_bytes(bytes[0:8])
         magic_value = Int.from_bytes(bytes[8:16])
         
@@ -579,13 +646,11 @@ class ZapPhys(CStruct):
         except:
             raise MagicError(type(self), value='INV_ZBT{%x}' % zbt_value)
         
-        # TODO: implement MicroZap. Now only FatZap is implemented.
         if zbt_value != int(ZBT.header):
             raise Unsupported(type(self),
                 value='INV_ZBT_HEADER{%x}' % zbt_value)
         
         self.set_fields(bytes)
-        
         if self.table_embeded:
             assert(self.zap_ptrtbl.zt_blk == 0)
             # Every entry contains a number of uint64. The size of zap-block
@@ -598,6 +663,7 @@ class ZapPhys(CStruct):
     
     @property
     def table_embeded(self):
+        assert(not self.is_micro)
         return self.zap_ptrtbl.zt_numblks == 0
 
 class ZapLeafPhys(CStruct):
@@ -722,3 +788,69 @@ class ZapLeafPhys(CStruct):
                 if val is not None:
                     break
             return self.STRUCT_NAME + ' -> ' + str(val)
+
+@EnumType
+class DDFlag(object):
+    '''dsl dir flags'''
+    TABLE = [
+        [ 'used_breakdown', 'DD_FLAG_USED_BREAKDOWN', (1 << 0) ],
+    ]
+
+@EnumType
+class DDUsed(object):
+    '''dd_used_t'''
+    TABLE = [
+        [ 'head',       'DD_USED_HEAD',       None ],
+        [ 'snap',       'DD_USED_SNAP',       None ],
+        [ 'child',      'DD_USED_CHILD',      None ],
+        [ 'child_rsrv', 'DD_USED_CHILD_RSRV', None ],
+        [ 'refrsrv',    'DD_USED_REFRSRV',    None ],
+        [ 'num',        'DD_USED_NUM',        None ],
+    ]
+
+class DslDirPhys(CStruct):
+    STRUCT_NAME = 'dsl_dir_phys_t'
+    FIELDS = [
+        [ 'dd_creation_time',      8,                 'u64',       'str' ],
+        [ 'dd_head_dataset_obj',   8,                 'u64',       'str' ],
+        [ 'dd_parent_obj',         8,                 'u64',       'str' ],
+        [ 'dd_origin_obj',         8,                 'u64',       'str' ],
+        [ 'dd_child_dir_zapobj',   8,                 'u64',       'str' ],
+        [ 'dd_used_bytes',         8,                 'u64',       'str' ],
+        [ 'dd_compressed_bytes',   8,                 'u64',       'str' ],
+        [ 'dd_uncompressed_bytes', 8,                 'u64',       'str' ],
+        [ 'dd_quota',              8,                 'u64',       'str' ],
+        [ 'dd_reserved',           8,                 'u64',       'str' ],
+        [ 'dd_props_zapobj',       8,                 'u64',       'str' ],
+        [ 'dd_deleg_zapobj',       8,                 'u64',       'str' ],
+        [ 'dd_flags',              8,                 'u64',       'str' ],
+        [ 'dd_used_breakdown',     8*int(DDUsed.num), 'u64.array', 'str' ],
+        [ 'dd_clones',             8,                 'u64',       'str' ],
+        [ 'dd_pad',                8*13,              'SKIP',      '--'  ],
+    ]
+
+class DslDataSetPhys(CStruct):
+    STRUCT_NAME = 'dsl_dataset_phys_t'
+    FIELDS = [
+        [ 'ds_dir_obj',            8, 'u64',       'str' ],
+        [ 'ds_prev_snap_obj',      8, 'u64',       'str' ],
+        [ 'ds_prev_snap_txg',      8, 'u64',       'str' ],
+        [ 'ds_next_snap_obj',      8, 'u64',       'str' ],
+        [ 'ds_snapnames_zapobj',   8, 'u64',       'str' ],
+        [ 'ds_num_children',       8, 'u64',       'str' ],
+        [ 'ds_creation_time',      8, 'u64',       'str' ],
+        [ 'ds_creation_txg',       8, 'u64',       'str' ],
+        [ 'ds_deadlist_obj',       8, 'u64',       'str' ],
+        [ 'ds_referenced_bytes',   8, 'u64',       'str' ],
+        [ 'ds_compressed_bytes',   8, 'u64',       'str' ],
+        [ 'ds_uncompressed_bytes', 8, 'u64',       'str' ],
+        [ 'ds_unique_bytes',       8, 'u64',       'str' ],
+        [ 'ds_fsid_guid',          8, 'u64',       'str' ],
+        [ 'ds_guid',               8, 'u64',       'str' ],
+        [ 'ds_flags',              8, 'u64',       'str' ],
+        [ 'ds_bp',               128, BlkPtr,      'str' ],
+        [ 'ds_next_clones_obj',    8, 'u64',       'str' ],
+        [ 'ds_props_obj',          8, 'u64',       'str' ],
+        [ 'ds_userrefs_obj',       8, 'u64',       'str' ],
+        [ 'ds_pad',               40, 'u64.array', 'str' ],
+    ]

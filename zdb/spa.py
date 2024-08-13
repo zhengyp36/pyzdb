@@ -20,11 +20,20 @@ class Spa(object):
         self.prtmgr = DmuPrtMgr(self)
         
         if self.rvd.child[0].type == 'disk':
-            self.meta_os = ObjSet(self.prtmgr.uberblock, self.rootbp)
+            self._open_impl()
         else:
             self.meta_os = None
         
         return True
+    
+    def _open_impl(self):
+        self.meta_os = ObjSet(self.prtmgr.uberblock, self.rootbp)
+        self.objdir = self.meta_os.get(1, type=Zap)
+        
+        rds_obj = self.objdir.lookup('root_dataset', fmt='num')['value'][0]
+        self.dsldir = self.meta_os.get(rds_obj, type=DslDir)
+        
+        # TODO: ...
     
     def sel_ub(self):
         ubs = []
