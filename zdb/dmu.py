@@ -149,13 +149,173 @@ class DNode(object):
 class Zap(DNode):
     def __init__(self, dmup, phys):
         super(type(self),self).__init__(dmup, phys)
+        self.crc = Crc64Poly()
+        self.is_micro = False
         self.zap_phys = ZapPhys(self.read_block(0))
         self.load_table()
     
-    def load_table(self):
-        zap_phys = self.zap_phys
-        if zap_phys.table_embeded:
-            self.table = zap_phys.table
+    def ls(self, keys=None, entries=None):
+        if keys is None:
+            names = []
         else:
-            raise Unsupported(type(zap_phys), value='External Pointer Table')
+            names = keys
+        
+        cursor = self.cursor_init()
+        while self.cursor_retrieve(cursor):
+            if entries is not None:
+                entries.append(cursor['entry'])
+            names.append(cursor['entry']['name'])
+            self.cursor_advance(cursor)
+        
+        if keys is None and entries is None:
+            print('\n'.join(names))
+    
+    def lookup(self, key, fmt=None):
+        '''The argument fmt should be one of ['str','num',None]'''
+        hash = self.hash(key)
+        leaf = self.leaf(self.hash2blk(hash))
+        
+        id = leaf.l_hash[self.leaf_hash(leaf,hash)]
+        while id != leaf.CHAIN_END:
+            le = leaf.l_chunk[id].l_entry
+            if le.le_hash == hash and key == self.deref_entry_key(leaf,le):
+                return self.deref_entry(leaf,le,fmt)
+            id = le.le_next
+        
+        return None
+    
+    def hashbits(self):
+        if self.is_micro:
+            flags = 0
+        else:
+            flags = self.zap_phys.zap_flags
+        
+        return {
+            True  : 48,
+            False : 28,
+        }[ZapF.hash64.has(flags)]
+    
+    def hash(self, key):
+        assert(self.zap_phys.zap_normflags == 0)
+        mask = ~((1 << (64 - self.hashbits())) - 1)
+        return self.crc.hash(key, self.zap_phys.zap_salt) & mask
+    
+    def cursor_init(self):
+        return {
+            'hash'       : 0,
+            'cd'         : 0,
+            'leaf_blkid' : -1,
+        }
+    
+    def leaf_hash(self, leaf, hash):
+        blk_shift = Int(self.phys.blksz).highbit() - 1
+        leaf_hash_shift = blk_shift - 5
+        shift = leaf_hash_shift + leaf.l_hdr.lh_prefix_len
+        mask = (1 << leaf_hash_shift) - 1
+        return (hash >> (64 - shift)) & mask
+    
+    def cursor_retrieve(self, cursor):
+        gteq = lambda h1,cd1,h2,cd2 : (h1 > h2) or (h1 == h2 and cd1 >= cd2)
+        satisfy = lambda le,besth,bestcd : (
+            gteq(le.le_hash, le.le_cd, cursor['hash'], cursor['cd']) and
+            gteq(besth, bestcd, le.le_hash, le.le_cd))
+        
+        def deref_leaf():
+            blk = self.hash2blk(cursor['hash'])
+            if cursor['leaf_blkid'] != blk:
+                cursor['leaf_blkid'] = blk
+                cursor['leaf'] = self.leaf(blk)
+                blk_shift = Int(self.phys.blksz).highbit() - 1
+                leaf_hash_shift = blk_shift - 5
+                cursor['nentry'] = 1 << leaf_hash_shift
+            return cursor['leaf']
+        
+        def get_closest(leaf):
+            besth,bestcd,bestle = (1<<64)-1,(1<<32)-1,None
+            lh,bestlh = self.leaf_hash(leaf,cursor['hash']),cursor['nentry']-1
+            while lh <= bestlh:
+                id = leaf.l_hash[lh]
+                while id != leaf.CHAIN_END:
+                    le = leaf.l_chunk[id].l_entry
+                    if satisfy(le,besth,bestcd):
+                        bestlh = lh
+                        besth  = le.le_hash
+                        bestcd = le.le_cd
+                        bestle = le
+                    id = le.le_next
+                lh += 1
+            return bestle
+        
+        while True:
+            if cursor['hash'] == -1:
+                return False
+            else:
+                leaf = deref_leaf()
+                le = get_closest(leaf)
+                if le is not None:
+                    break
+                
+                if leaf.l_hdr.lh_prefix_len == 0:
+                    cursor['hash'] = -1
+                    cursor['cd'] = 0
+                    return False
+                
+                nocare = (1 << (64 - leaf.l_hdr.lh_prefix_len)) - 1
+                cursor['hash'] = (cursor['hash'] & ~nocare) + nocare + 1
+                cursor['cd'] = 0
+                cursor['leaf_blkid'] = -1
+        
+        cursor['hash'] = le.le_hash
+        cursor['cd'] = le.le_cd
+        cursor['entry'] = self.deref_entry(leaf,le)
+        return True
+    
+    def cursor_advance(self, cursor):
+        cursor['cd'] += 1
+    
+    def decode_str(self, bytes):
+        return {
+            '2' : lambda bin : str(bytearray(bin)),
+            '3' : lambda bin : bytearray(bin).decode('utf-8'),
+        }[sys.version[0]](bytes).strip('\x00')
+    
+    def deref_entry_key(self, leaf, entry):
+        return self.decode_str(leaf.read(
+            entry.le_name_chunk, entry.le_name_numints
+        ))
+    
+    def deref_entry(self,leaf,entry,fmt=None,name=None):
+        if name is None:
+            name = self.deref_entry_key(leaf,entry)
+        
+        # Notes: value is encoded in big-endian
+        val_len = entry.le_value_intlen * entry.le_value_numints
+        value = leaf.read(entry.le_value_chunk, val_len)
+        if fmt == 'str':
+            value = self.decode_str(value)
+        elif fmt == 'num':
+            value = Int.from_bytes_to_list(value,
+                int_size=entry.le_value_intlen, endian=Endian.big)
+        
+        return {
+            'name'    : self.deref_entry_key(leaf,entry),
+            'value'   : value,
+            'intlen'  : entry.le_value_intlen,
+            'numints' : entry.le_value_numints,
+            'hash'    : entry.le_hash,
+            'cd'      : entry.le_cd,
+        }
+    
+    def load_table(self):
+        if self.zap_phys.table_embeded:
+            self.table = self.zap_phys.table
+        else:
+            raise Unsupported(type(self.zap_phys),
+                value='External Pointer Table')
             self.table = None
+    
+    def leaf(self, blkid):
+        return ZapLeafPhys(self.read_block(blkid))
+    
+    def hash2blk(self, hash):
+        return self.table[hash >> (64 - self.zap_phys.zap_ptrtbl.zt_shift)]

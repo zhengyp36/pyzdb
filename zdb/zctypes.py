@@ -389,12 +389,6 @@ class DNF(object):
         [ 'spill_blkptr',          'DNODE_FLAG_SPILL_BLKPTR',          (1 << 2) ],
         [ 'userobjused_accounted', 'DNODE_FLAG_USEROBJUSED_ACCOUNTED', (1 << 3) ],
     ]
-    
-    def has(self, flag):
-        if (int(self) & flag) != 0:
-            return True
-        else:
-            return False
 
 class DNodePhys(CStruct):
     @property
@@ -453,11 +447,11 @@ class DNodePhys(CStruct):
         assert(self.dn_nblkptr >= 1)
         assert(len(self.dn_blkptr) == 1)
         
-        blkptr_sz = BlkPtr.sizeof()
         if self.dn_nblkptr > 1:
-            off = self.offsetof('dn_blkptr')
+            sz = BlkPtr.sizeof()
+            bp = bytes[self.offsetof('dn_blkptr'):]
             self.dn_blkptr += [
-                BlkPtr(bytes[off:off+i*blkptr_sz])
+                BlkPtr(bp[i*sz:i*sz+sz])
                 for i in range(self.dn_nblkptr)[1:]
             ]
         else:
@@ -470,7 +464,7 @@ class DNodePhys(CStruct):
                 self.dn_bonus = bytearray(bytes[bonus_off:bonus_off+320])
         
         for blkptr in self.dn_blkptr:
-            assert(blkptr.endian == self.endian)
+            assert(blkptr.is_hole or blkptr.endian == self.endian)
 DNODE_PHYS_LEN = DNodePhys.sizeof()
 
 class ZilHdr(CStruct):
@@ -513,7 +507,7 @@ class ObjSetPhys(CStruct):
 class ZBT(object):
     '''Imported from C-Macro: ZBT_* and ZBT is ZapBlkType'''
     TABLE = [
-        [ 'macro',  'ZBT_MICRO',  ((1 << 63) + 3) ],
+        [ 'micro',  'ZBT_MICRO',  ((1 << 63) + 3) ],
         [ 'header', 'ZBT_HEADER', ((1 << 63) + 1) ],
         [ 'leaf',   'ZBT_LEAF',   ((1 << 63) + 0) ],
     ]
@@ -533,6 +527,22 @@ class ZapF(object):
         [ 'hash64',  'ZAP_FLAG_HASH64',         (1 << 0) ],
         [ 'u64key',  'ZAP_FLAG_UINT64_KEY',     (1 << 1) ],
         [ 'prehash', 'ZAP_FLAG_PRE_HASHED_KEY', (1 << 2) ],
+    ]
+
+@EnumType
+class ZLF(object):
+    '''Imported from C-Macro ZLF_ENTRIES_CDSORTED'''
+    TABLE = [
+        [ 'cdsorted', 'ZLF_ENTRIES_CDSORTED', (1 << 0) ],
+    ]
+
+@EnumType
+class ZapChunkType(object):
+    '''Imported from C-Macro zap_chunk_type_t'''
+    TABLE = [
+        [ 'free',  'ZAP_CHUNK_FREE',  253 ],
+        [ 'entry', 'ZAP_CHUNK_ENTRY', 252 ],
+        [ 'array', 'ZAP_CHUNK_ARRAY', 251 ],
     ]
 
 class ZapTblPhys(CStruct):
@@ -569,7 +579,7 @@ class ZapPhys(CStruct):
         except:
             raise MagicError(type(self), value='INV_ZBT{%x}' % zbt_value)
         
-        # TODO: implement MacroZap. Now only FatZap is implemented.
+        # TODO: implement MicroZap. Now only FatZap is implemented.
         if zbt_value != int(ZBT.header):
             raise Unsupported(type(self),
                 value='INV_ZBT_HEADER{%x}' % zbt_value)
@@ -589,3 +599,126 @@ class ZapPhys(CStruct):
     @property
     def table_embeded(self):
         return self.zap_ptrtbl.zt_numblks == 0
+
+class ZapLeafPhys(CStruct):
+    STRUCT_NAME = 'zap_leaf_phys_t'
+    FIELDS = [
+        [ 'l_hdr',   0, 'SKIP', '--' ],
+        [ 'l_hash',  0, 'SKIP', '--' ],
+        [ 'l_chunk', 0, 'SKIP', '--' ],
+    ]
+    CHAIN_END = 0xffff
+    
+    def _do_init(self, bytes):
+        self.set_fields(bytes)
+        
+        self.blksz = len(bytes)
+        is_power2 = lambda n : (n&(n-1)) == 0
+        assert(is_power2(self.blksz) and self.blksz >= 512)
+        
+        pos,sz = 0,self.Header.sizeof()
+        self.l_hdr = self.Header(bytes[pos:pos+sz], endian=self.endian)
+        pos += sz
+        
+        sz = self.blksz >> 4
+        self.l_hash = Int.from_bytes_to_list(bytes[pos:pos+sz],
+            int_size=2, endian=self.endian)
+        pos += sz
+        
+        chunks = (self.blksz - pos) // self.Chunk.SIZE
+        convert = self.Chunk.convert_method(count=chunks)
+        self.l_chunk = convert(bytes[pos:], endian=self.endian)
+        
+        assert(self.l_hdr.lh_magic == self.Header.MAGIC)
+    
+    def read(self, id, size=None):
+        assert(0 <= id < len(self.l_chunk))
+        assert(self.l_chunk[id].l_array.la_type == int(ZapChunkType.array))
+        
+        array = bytearray(0)
+        while id != self.CHAIN_END:
+            la = self.l_chunk[id].l_array
+            array += la.la_array
+            id = la.la_next
+        
+        if size is None:
+            return array
+        else:
+            assert(size <= len(array))
+            return array[:size]
+    
+    class Header(CStruct):
+        STRUCT_NAME = 'struct zap_leaf_header'
+        FIELDS = [
+            [ 'lh_block_type', 8, 'u64',      'str' ],
+            [ 'lh_pad1',       8, 'u64',      'str' ],
+            [ 'lh_prefix',     8, 'u64',      'str' ],
+            [ 'lh_magic',      4, 'u32',      'str' ],
+            [ 'lh_nfree',      2, 'u16',      'str' ],
+            [ 'lh_nentries',   2, 'u16',      'str' ],
+            [ 'lh_prefix_len', 2, 'u16',      'str' ],
+            [ 'lh_freelist',   2, 'u16',      'str' ],
+            [ 'lh_flags',      1, 'u8',       'str' ], # ZLF
+            [ 'lh_pad2',      11, 'u8.array', '--'  ],
+        ]
+        MAGIC = 0x2AB1EAF # zap-leaf
+    
+    class Chunk(CStruct):
+        STRUCT_NAME = 'zap_leaf_chunk_t'
+        FIELDS = [
+            [ 'l_entry', 0, 'SKIP', '--' ],
+            [ 'l_array', 0, 'SKIP', '--' ],
+            [ 'l_free',  0, 'SKIP', '--' ],
+        ]
+        SIZE = 24
+        
+        class Entry(CStruct):
+            STRUCT_NAME = 'struct zap_leaf_entry'
+            FIELDS = [
+                [ 'le_type',          1, 'u8',   'str'     ], # ZapChunkType
+                [ 'le_value_intlen',  1, 'u8',   'str'     ],
+                [ 'le_next',          2, 'u16',  'str'     ],
+                [ 'le_name_chunk',    2, 'u16',  'str'     ],
+                [ 'le_name_numints',  2, 'u16',  'str'     ],
+                [ 'le_value_chunk',   2, 'u16',  'str'     ],
+                [ 'le_value_numints', 2, 'u16',  'str'     ],
+                [ 'le_cd',            4, 'u32',  'str'     ],
+                [ 'le_hash',          8, 'u64',  'magic64' ],
+            ]
+        class Array(CStruct):
+            STRUCT_NAME = 'struct zap_leaf_array'
+            FIELDS = [
+                [ 'la_type',   1, 'u8',   'str' ], # ZapChunkType
+                [ 'la_array', 21, 'byte', '--'  ],
+                [ 'la_next',   2, 'u16',  'str' ],
+            ]
+        class Free(CStruct):
+            STRUCT_NAME = 'struct zap_leaf_free'
+            FIELDS = [
+                [ 'lf_type',  1, 'u8',   'str' ], # ZapChunkType
+                [ 'lf_pad',  21, 'SKIP', '--'  ],
+                [ 'lf_next',  2, 'u16',  'str' ],
+            ]
+        
+        def _do_init(self, bytes):
+            self.set_fields(bytes)
+            
+            nt = {
+                int(ZapChunkType.entry) : ('l_entry', self.Entry),
+                int(ZapChunkType.array) : ('l_array', self.Array),
+                int(ZapChunkType.free)  : ('l_free',  self.Free),
+            }[Int.from_bytes(bytes[0:1])]
+            
+            setattr(self, nt[0], nt[1](bytes, self.endian))
+        
+        @classmethod
+        def sizeof(cls, field_def=None):
+            return cls.SIZE
+        
+        def do_format(self, field_def=None, checker=None, keylen=None):
+            val = None
+            for entry in self.FIELDS:
+                val = getattr(self, entry[0])
+                if val is not None:
+                    break
+            return self.STRUCT_NAME + ' -> ' + str(val)

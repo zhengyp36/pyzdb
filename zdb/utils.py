@@ -74,6 +74,9 @@ def EnumType(TypeDef):
         def __int__(self):
             return self._value
         
+        def has(self, flag):
+            return not not (self._value & flag)
+        
         @classmethod
         def from_str(cls, name):
             return cls.MEMBERS_DICT[str(name)]
@@ -217,6 +220,30 @@ class Int(object):
         s = (bin(self._value)[2:].strip('L')+'L').strip('0')[:-1]
         return len(s)
 
+class Crc64Poly(object):
+    ZFS_CRC64_POLY = 0xC96C5795D7870F42
+    
+    def __init__(self):
+        def gen(n):
+            for i in range(8):
+                n = (n >> 1) ^ (-(n&1) & self.ZFS_CRC64_POLY)
+            return n
+        
+        self.table = [gen(i) for i in range(256)]
+        assert(self.table[128] == self.ZFS_CRC64_POLY)
+    
+    def hash(self, key, salt):
+        assert(isinstance(key,str))
+        ba = {
+            '2' : lambda s : bytearray(s),
+            '3' : lambda s : bytearray(s.encode('utf-8')),
+        }[sys.version[0]](key)
+        
+        h = salt
+        for i in ba:
+            h = (h >> 8) ^ self.table[(h^i)&0xFF]
+        return h
+
 class XDR(object):
     def __init__(self, bytes):
         self.buffer = memoryview(bytes)
@@ -300,6 +327,7 @@ class CStruct(object):
         'byte'      : conv_byte,
         'u8'        : conv_unsigned,
         'u16'       : conv_unsigned,
+        'u32'       : conv_unsigned,
         'u64'       : conv_unsigned,
         'u8.array'  : conv_array_u8,
         'u64.array' : conv_array_u64,
@@ -336,16 +364,15 @@ class CStruct(object):
         mv = memoryview(bytes)
         for entry in self._get_value(field_def, self.FIELDS):
             name,sz,conv = entry[:3]
-            if sz > 0:
-                if name != '.':
-                    if conv in self.CONVERT_TABLE:
-                        conv = self.CONVERT_TABLE[conv]
-                    val = conv(mv[pos:pos+sz],self._endian)
-                    
-                    assert(name not in field_out)
-                    field_out[name] = val
-                    setattr(self, name, val)
-                pos += sz
+            if name != '.':
+                if conv in self.CONVERT_TABLE:
+                    conv = self.CONVERT_TABLE[conv]
+                val = conv(mv[pos:pos+sz],self._endian)
+                
+                assert(name not in field_out)
+                field_out[name] = val
+                setattr(self, name, val)
+            pos += sz
         
         return pos
     
@@ -358,7 +385,7 @@ class CStruct(object):
         output.append(self.STRUCT_NAME + ' {')
         for f in field_def:
             name,sz,_,_fmt = f
-            if sz > 0:
+            if name != '.':
                 if not checker or checker(f):
                     if name != '.':
                         if _fmt in self.FORMAT_TABLE:
