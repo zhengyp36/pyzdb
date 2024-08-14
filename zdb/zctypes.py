@@ -188,11 +188,12 @@ class BlkPtr(CStruct):
             checker,keylen = None,None
         
         return self.do_format(checker=checker, keylen=keylen)
+BLKPTR_SIZE = BlkPtr.sizeof()
 
 class UberBlock(CStruct):
     STRUCT_NAME = 'uberblock_t'
     FIELDS = [
-        [ 'ub_magic',            8, 'u64',  'str'     ],
+        [ 'ub_magic',            8, 'u64',  'magic32' ],
         [ 'ub_version',          8, 'u64',  'str'     ],
         [ 'ub_txg',              8, 'u64',  'str'     ],
         [ 'ub_guid_sum',         8, 'u64',  'magic32' ],
@@ -213,7 +214,7 @@ class UberBlock(CStruct):
                 magic = Int.from_bytes(magic_buf, endian=endian)
                 if magic == self.UBERBLOCK_MAGIC:
                     return endian
-            raise MagicError(type(self))
+            raise MagicError(self)
         
         self._endian = retrieve_endian()
         self.set_fields(bytes)
@@ -459,6 +460,7 @@ class DNodePhys(CStruct):
         
         assert(self.dn_nblkptr >= 1)
         assert(len(self.dn_blkptr) == 1)
+        assert(self.dn_extra_slots == 0)
         
         if self.dn_nblkptr > 1:
             sz = BlkPtr.sizeof()
@@ -467,16 +469,17 @@ class DNodePhys(CStruct):
                 BlkPtr(bp[i*sz:i*sz+sz])
                 for i in range(self.dn_nblkptr)[1:]
             ]
-        else:
-            if DNF.spill_blkptr.has(self.dn_flags):
-                spill_off = self.offsetof('dn_spill')
-                self.dn_spill = BlkPtr(bytes[spill_off:])
-            
-            if self.dn_bonuslen > 0:
-                bonus_off = self.offsetof('dn_bonus')
-                self.dn_bonus = bytearray(bytes[
-                    bonus_off : bonus_off+self.dn_bonuslen
-                ])
+        
+        if self.dn_bonuslen > 0:
+            bonus_off = (self.offsetof('dn_bonus') +
+                (self.dn_nblkptr - 1) * BLKPTR_SIZE)
+            self.dn_bonus = bytearray(bytes[
+                bonus_off : bonus_off+self.dn_bonuslen
+            ])
+        
+        if DNF.spill_blkptr.has(self.dn_flags):
+            spill_off = self.offsetof('dn_spill')
+            self.dn_spill = BlkPtr(bytes[spill_off:])
         
         for blkptr in self.dn_blkptr:
             assert(blkptr.is_hole or blkptr.endian == self.endian)
@@ -485,13 +488,13 @@ DNODE_PHYS_LEN = DNodePhys.sizeof()
 class ZilHdr(CStruct):
     STRUCT_NAME = 'zil_header_t'
     FIELDS = [
-        [ 'zh_claim_txg',     8, 'u64',        'str' ],
-        [ 'zh_replay_seq',    8, 'u64',        'str' ],
-        [ 'zh_log',         128, BlkPtr,       'str' ],
-        [ 'zh_claim_blk_seq', 8, 'u64',        'str' ],
-        [ 'zh_flags',         8, 'u64',        'str' ],
-        [ 'zh_claim_lr_seq',  8, 'u64',        'str' ],
-        [ 'zh_pad',          24, 'u64.array',  'str' ],
+        [ 'zh_claim_txg',     8, 'u64',        'str'      ],
+        [ 'zh_replay_seq',    8, 'u64',        'str'      ],
+        [ 'zh_log',         128, BlkPtr,       '<blkptr>' ],
+        [ 'zh_claim_blk_seq', 8, 'u64',        'str'      ],
+        [ 'zh_flags',         8, 'u64',        'str'      ],
+        [ 'zh_claim_lr_seq',  8, 'u64',        'str'      ],
+        [ 'zh_pad',          24, 'u64.array',  'str'      ],
     ]
 ZIL_HDR_LEN = ZilHdr.sizeof()
 
@@ -628,7 +631,7 @@ class ZapPhys(CStruct):
         try:
             zbt = ZBT.from_int(zbt_value)
         except:
-            raise MagicError(type(self), value='INV_ZBT{%x}' % zbt_value)
+            raise MagicError(self, value='INV_ZBT{%x}' % zbt_value)
         
         if zbt == ZBT.header:
             return cls(bytes, endian=endian)
@@ -644,10 +647,10 @@ class ZapPhys(CStruct):
         try:
             zbt = ZBT.from_int(zbt_value)
         except:
-            raise MagicError(type(self), value='INV_ZBT{%x}' % zbt_value)
+            raise MagicError(self, value='INV_ZBT{%x}' % zbt_value)
         
         if zbt_value != int(ZBT.header):
-            raise Unsupported(type(self),
+            raise Unsupported(self,
                 value='INV_ZBT_HEADER{%x}' % zbt_value)
         
         self.set_fields(bytes)
@@ -832,25 +835,25 @@ class DslDirPhys(CStruct):
 class DslDataSetPhys(CStruct):
     STRUCT_NAME = 'dsl_dataset_phys_t'
     FIELDS = [
-        [ 'ds_dir_obj',            8, 'u64',       'str' ],
-        [ 'ds_prev_snap_obj',      8, 'u64',       'str' ],
-        [ 'ds_prev_snap_txg',      8, 'u64',       'str' ],
-        [ 'ds_next_snap_obj',      8, 'u64',       'str' ],
-        [ 'ds_snapnames_zapobj',   8, 'u64',       'str' ],
-        [ 'ds_num_children',       8, 'u64',       'str' ],
-        [ 'ds_creation_time',      8, 'u64',       'str' ],
-        [ 'ds_creation_txg',       8, 'u64',       'str' ],
-        [ 'ds_deadlist_obj',       8, 'u64',       'str' ],
-        [ 'ds_referenced_bytes',   8, 'u64',       'str' ],
-        [ 'ds_compressed_bytes',   8, 'u64',       'str' ],
-        [ 'ds_uncompressed_bytes', 8, 'u64',       'str' ],
-        [ 'ds_unique_bytes',       8, 'u64',       'str' ],
-        [ 'ds_fsid_guid',          8, 'u64',       'str' ],
-        [ 'ds_guid',               8, 'u64',       'str' ],
-        [ 'ds_flags',              8, 'u64',       'str' ],
-        [ 'ds_bp',               128, BlkPtr,      'str' ],
-        [ 'ds_next_clones_obj',    8, 'u64',       'str' ],
-        [ 'ds_props_obj',          8, 'u64',       'str' ],
-        [ 'ds_userrefs_obj',       8, 'u64',       'str' ],
-        [ 'ds_pad',               40, 'u64.array', 'str' ],
+        [ 'ds_dir_obj',            8, 'u64',       'str'      ],
+        [ 'ds_prev_snap_obj',      8, 'u64',       'str'      ],
+        [ 'ds_prev_snap_txg',      8, 'u64',       'str'      ],
+        [ 'ds_next_snap_obj',      8, 'u64',       'str'      ],
+        [ 'ds_snapnames_zapobj',   8, 'u64',       'str'      ],
+        [ 'ds_num_children',       8, 'u64',       'str'      ],
+        [ 'ds_creation_time',      8, 'u64',       'str'      ],
+        [ 'ds_creation_txg',       8, 'u64',       'str'      ],
+        [ 'ds_deadlist_obj',       8, 'u64',       'str'      ],
+        [ 'ds_referenced_bytes',   8, 'u64',       'str'      ],
+        [ 'ds_compressed_bytes',   8, 'u64',       'str'      ],
+        [ 'ds_uncompressed_bytes', 8, 'u64',       'str'      ],
+        [ 'ds_unique_bytes',       8, 'u64',       'str'      ],
+        [ 'ds_fsid_guid',          8, 'u64',       'str'      ],
+        [ 'ds_guid',               8, 'u64',       'str'      ],
+        [ 'ds_flags',              8, 'u64',       'str'      ],
+        [ 'ds_bp',               128, BlkPtr,      '<blkptr>' ],
+        [ 'ds_next_clones_obj',    8, 'u64',       'str'      ],
+        [ 'ds_props_obj',          8, 'u64',       'str'      ],
+        [ 'ds_userrefs_obj',       8, 'u64',       'str'      ],
+        [ 'ds_pad',               40, 'u64.array', 'str'      ],
     ]

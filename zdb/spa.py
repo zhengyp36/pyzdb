@@ -30,7 +30,7 @@ class Spa(object):
         self.meta_os = ObjSet(self.prtmgr.uberblock, self.rootbp)
         self.objdir = self.meta_os.get(1, type=Zap)
         
-        rds_obj = self.objdir.lookup('root_dataset', fmt='num')['value'][0]
+        rds_obj = self.objdir.lookup('root_dataset', fmt='num')[0]
         self.dsldir = self.meta_os.get(rds_obj, type=DslDir)
         
         # TODO: ...

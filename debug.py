@@ -18,7 +18,7 @@ def debug(spa):
     print(spa.uberblock.ub_rootbp)
     print('')
     
-    rds_obj = spa.objdir.lookup('root_dataset',fmt='num')['value'][0]
+    rds_obj = spa.objdir.lookup('root_dataset',fmt='num')[0]
     print('root_dataset objid = ' + str(rds_obj))
     dn = spa.meta_os.get(rds_obj)
     zap = spa.meta_os.get(spa.dsldir.dd_phys.dd_child_dir_zapobj,type=zdb.Zap)

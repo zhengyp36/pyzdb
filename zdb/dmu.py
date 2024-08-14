@@ -13,7 +13,7 @@ class BlkPtrReader(object):
         # TODO: verify whether all copies are same
         
         if blkptr.is_hole:
-            raise HoleError(type(self))
+            raise HoleError(blkptr)
         
         compressor = Compressor.from_int(blkptr.compr)
         # TODO: what if read content not compressed?
@@ -328,7 +328,7 @@ class Zap(DNode):
             value = Int.from_bytes_to_list(value,
                 int_size=entry.le_value_intlen, endian=Endian.big)
         
-        return {
+        ret = {
             'name'    : self.deref_entry_key(leaf,entry),
             'value'   : value,
             'intlen'  : entry.le_value_intlen,
@@ -336,6 +336,10 @@ class Zap(DNode):
             'hash'    : entry.le_hash,
             'cd'      : entry.le_cd,
         }
+        if fmt is None:
+            return ret
+        else:
+            return ret['value']
     
     def load_table(self):
         if self.is_micro:
@@ -344,7 +348,7 @@ class Zap(DNode):
         if self.zap_phys.table_embeded:
             self.table = self.zap_phys.table
         else:
-            raise Unsupported(type(self.zap_phys),
+            raise Unsupported(self,
                 value='External Pointer Table')
             self.table = None
     
