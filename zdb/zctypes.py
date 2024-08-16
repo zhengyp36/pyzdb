@@ -151,7 +151,7 @@ class BlkPtr(CStruct):
         
         return '{%s}<%s>' % ('|'.join(output), hex(value).strip('L'))
     
-    def diskLocation(self, shift=9, diskOff=4*1024*1024):
+    def diskLocation(self, shift=9):
         if not self.embed:
             dva_arr,idx = [],0
             for dva in self.blk_dva:
@@ -159,7 +159,7 @@ class BlkPtr(CStruct):
                     dva_arr.append({
                         'index'  : idx,
                         'vdev'   : dva.vdev,
-                        'offset' : diskOff + (dva.offset << shift),
+                        'offset' : dva.offset << shift,
                         'asize'  : dva.asize << shift,
                         'gang'   : dva.gang,
                         'grid'   : dva.grid,

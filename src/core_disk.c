@@ -76,23 +76,47 @@ static PyObject *
 zdbcore_Disk_read(zdbcore_DiskObject *self, PyObject *args)
 {
 	long offset;
-	int length;
-	if (!PyArg_ParseTuple(args, "li", &offset, &length))
+	PyObject *pbuf;
+	if (!PyArg_ParseTuple(args, "lO", &offset, &pbuf))
 		return (NULL);
 
-	unsigned long long u_off = offset;
-	unsigned int u_len = length;
-	if (u_off > self->disk.size || self->disk.size - u_off < u_len) {
-		PyErr_SetString(PyExc_IOError, "Read out-of-range");
-		return (NULL);
-	}
-
-	if (!self->disk.addr) {
-		PyErr_SetString(PyExc_OSError, "Disk not mapped");
+	Py_buffer buf;
+	if (PyObject_GetBuffer(pbuf, &buf, PyBUF_WRITABLE) == -1) {
+		PyErr_SetString(PyExc_ValueError,
+		    "Failed to get writable buffer");
 		return (NULL);
 	}
 
-	return (PyBytes_FromStringAndSize(self->disk.addr + u_off, u_len));
+	int err = -1;
+	do {
+		if (buf.readonly) {
+			PyErr_SetString(PyExc_ValueError,
+			    "Buffer is not writable");
+			break;
+		}
+
+		unsigned long long u_off = offset;
+		unsigned int u_len = buf.len;
+		if (u_off > self->disk.size ||
+		    self->disk.size - u_off < u_len) {
+			PyErr_SetString(PyExc_IOError, "Read out-of-range");
+			break;
+		}
+
+		if (!self->disk.addr) {
+			PyErr_SetString(PyExc_OSError, "Disk not mapped");
+			break;
+		}
+
+		memcpy(buf.buf, self->disk.addr + u_off, u_len);
+		err = 0;
+	} while (0);
+
+	PyBuffer_Release(&buf);
+	if (err)
+		return (NULL);
+	else
+		Py_RETURN_NONE;
 }
 
 static PyGetSetDef zdbcore_Disk_getseters[] = {

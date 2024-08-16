@@ -1,0 +1,44 @@
+global param_zio
+global param_io_offset
+global param_io_size
+global param_ashift
+global param_dcols
+global param_nparity
+global index = 0
+
+probe module("zfs").function("vdev_raidz_map_alloc").call {
+    param_zio[tid()]       = $zio
+    param_io_offset[tid()] = $zio->io_offset
+    param_io_size[tid()]   = $zio->io_size
+    param_ashift[tid()]    = $ashift
+    param_dcols[tid()]     = $dcols
+    param_nparity[tid()]   = $nparity
+}
+
+probe module("zfs").function("vdev_raidz_map_alloc").return {
+    index++
+    printf("%d[%ld,%ld,%ld]<%ld:%ld>=[%ld:%ld:%ld,%ld:%ld:%ld,%ld:%ld:%ld]\n",
+        index,
+        param_ashift[tid()],
+        param_dcols[tid()],
+        param_nparity[tid()],
+        param_io_offset[tid()],
+        param_io_size[tid()],
+        $return->rm_row[0]->rr_col[0]->rc_devidx,
+        $return->rm_row[0]->rr_col[0]->rc_offset,
+        $return->rm_row[0]->rr_col[0]->rc_size,
+        $return->rm_row[0]->rr_col[1]->rc_devidx,
+        $return->rm_row[0]->rr_col[1]->rc_offset,
+        $return->rm_row[0]->rr_col[1]->rc_size,
+        $return->rm_row[0]->rr_col[2]->rc_devidx,
+        $return->rm_row[0]->rr_col[2]->rc_offset,
+        $return->rm_row[0]->rr_col[2]->rc_size
+    )
+    
+    delete param_zio[tid()]
+    delete param_io_offset[tid()]
+    delete param_io_size[tid()]
+    delete param_ashift[tid()]
+    delete param_dcols[tid()]
+    delete param_nparity[tid()]
+}

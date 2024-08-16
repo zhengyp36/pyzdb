@@ -37,6 +37,8 @@ class NVLDT(object):
     ]
 
 class NVList(object):
+    repr_detail = True
+    
     NV_HEADER = [ 'encoding', 'host-endian', 'reserved' ]
     NV_ATTR   = [ 'version',  'nvflag' ]
     NV_PAIR   = [
@@ -68,7 +70,12 @@ class NVList(object):
     
     def __str__(self):
         return '{\n' + self._format(indent=1, tab=2*' ') + '\n}'
-    # __repr__ = __str__
+    
+    def __repr__(self):
+        if self.repr_detail:
+            return str(self)
+        else:
+            return object.__repr__(self)
     
     def __bool__(self):
         return not not self._items
@@ -245,4 +252,3 @@ class NVList(object):
         for key in keys:
             _dict[key] = default_value
         return _dict
-    

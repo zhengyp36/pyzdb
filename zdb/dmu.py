@@ -23,12 +23,13 @@ class BlkPtrReader(object):
         if not blkptr.embed:
             assert(len(loc['dva']) > 0)
             dva = loc['dva'][0]
-            
-            vd  = self.rvd.child[dva['vdev']]
-            # TODO: how to read disk of raidz or other formats
-            assert(vd.is_leaf() and vd.type == 'disk')
-            
-            raw = vd.disk.read(dva['offset'], dva['asize'])
+            raw = self.rvd.read(
+                dva['vdev'],
+                dva['offset'],
+                #buffer=memoryview(bytearray(dva['asize'])),
+                buffer=memoryview(bytearray(loc['psize'])),
+                diskOff=4*1024*1024
+            )
         else:
             raw = self.read_embed(blkptr, loc)
         
@@ -36,7 +37,7 @@ class BlkPtrReader(object):
     
     def read_embed(self, blkptr, loc):
         assert(blkptr.endian == Endian.little == Endian.default)
-        return blkptr.bytes[0:loc['psize']]
+        return memoryview(blkptr.bytes[0:loc['psize']])
 
 class DmuPrt(object):
     '''DMU-Parent'''
@@ -121,7 +122,7 @@ class DNode(object):
     def read(self, offset, length):
         blksz = self.phys.blksz
         start = curr = offset // blksz
-        end   = (offset + length - 1 + blksz - 1) // blksz
+        end   = (offset + length - 1) // blksz
         
         mv_ret = memoryview(bytearray(blksz * (end - start + 1)))
         while curr <= end:
@@ -130,7 +131,10 @@ class DNode(object):
             curr += 1
         
         off = offset - start*blksz
-        return mv_ret[off : off+length]
+        ret = mv_ret[off : off+length]
+        
+        assert(len(ret) == length)
+        return ret
     
     def read_block(self, blkid):
         return self.dmup.spa.reader.read(self.get_blkptr(blkid))

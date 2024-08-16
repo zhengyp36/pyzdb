@@ -11,7 +11,7 @@ class Spa(object):
         self.name = root_vdev.name
         self.uberblock = None
     
-    def open(self):
+    def open(self, do_open=True):
         self.uberblock = self.sel_ub()
         assert(self.uberblock)
         
@@ -19,10 +19,8 @@ class Spa(object):
         self.rootbp = self.uberblock.ub_rootbp
         self.prtmgr = DmuPrtMgr(self)
         
-        if self.rvd.child[0].type == 'disk':
+        if do_open:
             self._open_impl()
-        else:
-            self.meta_os = None
         
         return True
     
@@ -45,13 +43,13 @@ class Spa(object):
         ubs.sort(key = lambda ub : ub.ub_txg)
         return ubs[-1]
     
-    def sel_ub_from_vd(self, vd):
+    @classmethod
+    def sel_ub_from_vd(cls, vd):
         # TODO: Only read uberblocks in Label 0 but skip 1~3
-        ub_off,ub_len = 128*1024,128*1024
-        raw = memoryview(vd.disk.read(ub_off,ub_len))
+        raw = memoryview(vd.disk.read_uberblock(label_index=0))
         
-        ubs,pos,ub_sz = [],0,self.ub_size(vd)
-        while pos < ub_len:
+        ubs,pos,ub_sz = [],0,cls.ub_size(vd)
+        while pos+ub_sz <= len(raw):
             try:
                 ubs.append(UberBlock(raw[pos:pos+ub_sz]))
             except MagicError:
@@ -61,7 +59,8 @@ class Spa(object):
         ubs.sort(key = lambda ub : ub.ub_txg)
         return ubs[-1]
     
-    def ub_size(self, vd):
+    @classmethod
+    def ub_size(cls, vd):
         UBERBLOCK_SHIFT = 10 # 1K
         MAX_UBERBLOCK_SHIFT = 13 # 8K
         shift = min(max(UBERBLOCK_SHIFT, vd.top.ashift), MAX_UBERBLOCK_SHIFT)
@@ -75,13 +74,13 @@ class SpaManager(object):
     def ls(self):
         self.vdmgr.ls()
     
-    def open_pool(self, pool):
+    def open_pool(self, pool, do_open=True):
         rvd = self.vdmgr.lookup(pool)
         if not rvd or not rvd.open():
             return None
         
         spa = Spa(root_vdev=rvd)
-        if spa.open():
+        if spa.open(do_open=do_open):
             return spa
         else:
             return None

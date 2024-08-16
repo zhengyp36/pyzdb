@@ -3,6 +3,7 @@
 import os
 from .disk import *
 from .nvlist import *
+from .raidz import RaidzMapper
 
 class VDevManager(object):
     def __init__(self):
@@ -16,16 +17,13 @@ class VDevManager(object):
         else:
             devs = disks[:]
         
-        # TODO: need read other labels if failed
-        disk_min_size = 256*1024 * 4 + 3.5 * 1024 * 1024
-        label_start, label_length = 16*1024, 112*1024
-        
         for dev in devs:
             disk = Disk(dev)
-            if disk.size.size <= disk_min_size:
+            if disk.size.size <= disk.ZFS_DISK_MIN_SIZE:
                 continue
             
-            raw_data = disk.read(label_start, label_length)
+            # TODO: need read other labels if failed
+            raw_data = disk.read_nvpairs(label_index=0)
             try:
                 nvlist = NVList.from_bytes(raw_data)
             except AssertionError:
@@ -63,6 +61,27 @@ class VDevManager(object):
             print('')
 
 class VDev(object):
+    def read(self, id, offset, size=0, buffer=None, diskOff=0):
+        if id >= 0:
+            return self.child[id].read(
+                -1, offset, size=size, buffer=buffer, diskOff=diskOff)
+        else:
+            assert(id == -1)
+            return {
+                'disk'  : self.read_disk,
+                'raidz' : self.read_raidz,
+            }[self.type](offset, size=size, buffer=buffer, diskOff=diskOff)
+    
+    def read_disk(self, offset, size=0, buffer=None, diskOff=0):
+        assert(self.is_leaf() and self.type == 'disk')
+        return self.disk.read(offset, size=size, buffer=buffer, diskOff=diskOff)
+    
+    def read_raidz(self, offset, size=0, buffer=None, diskOff=0):
+        _buf = Disk.convert_buffer(buffer=buffer,size=size)
+        for id,off,buf in self.mapper.map(offset,_buf):
+            self.child[id].read(-1, off, buffer=buf, diskOff=diskOff)
+        return _buf
+    
     @classmethod
     def make(cls, nvlist, root_vdevs=None):
         # check whether nvlist is valid
@@ -106,6 +125,8 @@ class VDev(object):
             else:
                 self.child = []
             self.type = nvlist['type']
+            if self.type == 'raidz':
+                self.nparity = nvlist['nparity']
         
         if parent is None:
             self.top = None
@@ -120,6 +141,12 @@ class VDev(object):
             self.path = nvlist['path']
         else:
             self.path = ''
+        
+        if self.type == 'raidz':
+            self.mapper = RaidzMapper(
+                self.ashift, len(self.child), self.nparity)
+        else:
+            self.mapper = None
     
     def add_child(self, nvlist):
         cvd = self.child[nvlist['id']] = type(self)(nvlist, parent=self)

@@ -298,6 +298,8 @@ class XDR(object):
             return [val, 4+sz+pad]
 
 class CStruct(object):
+    repr_detail = True
+    
     '''FIELDS is defined by derived class.
     1. An example for blkptr_t:
        --------------------------------------------------
@@ -452,8 +454,11 @@ class CStruct(object):
     def __str__(self):
         return self.do_format()
     
-    def dump(self):
-        print(str(self))
+    def __repr__(self):
+        if self.repr_detail:
+            return str(self)
+        else:
+            return object.__repr__(self)
 
 class ZapNameTable(object):
     TABLE = []
