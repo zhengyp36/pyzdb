@@ -39,88 +39,17 @@ class BlkPtrReader(object):
         assert(blkptr.endian == Endian.little == Endian.default)
         return memoryview(blkptr.bytes[0:loc['psize']])
 
-class DmuPrt(object):
-    '''DMU-Parent'''
-    DESC_TABLE = set([
-        'uberblock',
-        'os->mdn',
-        'os->dn',
-    ])
-    
-    def __init__(self, spa, desc, parent, detail=None):
-        assert(desc in self.DESC_TABLE)
-        self.spa    = spa
-        self.desc   = desc
-        self.parent = parent
-        self.detail = detail
-    
-    def __str__(self):
-        return '<%s>%s:%s' % (self.spa.name, self.desc, repr(self.parent))
-    
-    def equal(self, other):
-        return (self.spa == other.spa and self.desc == other.desc and
-            self.parent == other.parent and self.detail == other.detail)
-
-class DmuPrtMgr(object):
-    '''DMU-Parent-Manger'''
-    def __init__(self, spa):
-        self.spa = spa
-        self.init_special()
-    
-    def init_special(self):
-        self.specials = {
-            'uberblock' : DmuPrt(self.spa, 'uberblock', self.spa.uberblock),
-        }
-        
-        for desc in self.specials:
-            setattr(self, desc, self.specials[desc])
-    
-    def get(self, desc, parent, detail=None):
-        obj = DmuPrt(self.spa, desc, parent, detail=detail)
-        if desc not in self.specials:
-            return obj
-        else:
-            assert(obj.equal(self.specials[desc]))
-            return self.specials[desc]
-
-class ObjSet(object):
-    def __init__(self, dmup, blkptr):
-        self.dmup = dmup
-        self.phys = ObjSetPhys(self.dmup.spa.reader.read(blkptr))
-        self.blkptr = blkptr
-        self.meta_dn = DNode(
-            dmup.spa.prtmgr.get('os->mdn',self),
-            self.phys.os_meta_dnode
-        )
-    
-    def get(self, id, type=None):
-        if type is None:
-            type = DNode
-            detail = None
-        else:
-            assert(issubclass(type,DNode))
-            detail = type.__name__
-        
-        dnsz = DNodePhys.sizeof()
-        assert(id > 0)
-        assert(dnsz == 512)
-        
-        data = self.meta_dn.read(id * dnsz, dnsz)
-        obj = type(
-            self.dmup.spa.prtmgr.get('os->dn',self,detail=detail),
-            DNodePhys(data)
-        )
-        setattr(obj, 'objid', id)
-        
-        return obj
-
 class DNode(object):
-    def __init__(self, dmup, phys):
-        self.dmup = dmup
-        self.phys = phys
+    def __init__(self, os, id, phys):
+        self.os = os
+        self.id = id
+        self.dnphys = phys
+    
+    def read_block(self, blkid):
+        return self.os.spa.reader.read(self.get_blkptr(blkid))
     
     def read(self, offset, length):
-        blksz = self.phys.blksz
+        blksz = self.dnphys.blksz
         start = curr = offset // blksz
         end   = (offset + length - 1) // blksz
         
@@ -136,36 +65,71 @@ class DNode(object):
         assert(len(ret) == length)
         return ret
     
-    def read_block(self, blkid):
-        return self.dmup.spa.reader.read(self.get_blkptr(blkid))
-    
     def get_blkptr(self, blkid):
         BLKPTR_SHFT = 7
-        if self.phys.dn_nlevels > 1:
-            assert(self.phys.dn_indblkshift > BLKPTR_SHFT)
-            BLKID_MASK = (1 << (self.phys.dn_indblkshift - BLKPTR_SHFT)) - 1
+        if self.dnphys.dn_nlevels > 1:
+            assert(self.dnphys.dn_indblkshift > BLKPTR_SHFT)
+            BLKID_MASK = (1 << (self.dnphys.dn_indblkshift - BLKPTR_SHFT)) - 1
         
         blkid_arr = []
-        for i in range(self.phys.dn_nlevels):
+        for i in range(self.dnphys.dn_nlevels):
             blkid_arr.append(blkid)
             # blkid = blkid * blkptr_sz / ind_blk_sz
-            blkid >>= (self.phys.dn_indblkshift - BLKPTR_SHFT)
-        assert(blkid_arr[-1] < self.phys.dn_nblkptr)
+            blkid >>= (self.dnphys.dn_indblkshift - BLKPTR_SHFT)
+        assert(blkid_arr[-1] < self.dnphys.dn_nblkptr)
         
-        blkptr = self.phys.dn_blkptr[blkid_arr.pop()]
+        blkptr = self.dnphys.dn_blkptr[blkid_arr.pop()]
         while len(blkid_arr) > 0:
-            data = memoryview(self.dmup.spa.reader.read(blkptr))
+            data = memoryview(self.os.spa.reader.read(blkptr))
             blkid = blkid_arr.pop() & BLKID_MASK
             blkptr = BlkPtr(data[blkid<<BLKPTR_SHFT : (blkid+1)<<BLKPTR_SHFT])
         
         return blkptr
 
+class ObjSet(object):
+    def __init__(self, spa, blkptr, ds=None):
+        self.spa = spa
+        self.ds = ds
+        self.phys = ObjSetPhys(spa.reader.read(blkptr))
+        self.metadn = DNode(os=self, id=None, phys=self.phys.os_meta_dnode)
+        self.blkptr = blkptr
+    
+    def get(self, id, type=None, get_dnphys=False):
+        dnsz = DNodePhys.sizeof()
+        assert(id > 0 and dnsz == 512)
+        dnphys = DNodePhys(self.metadn.read(id * dnsz, dnsz))
+        
+        if get_dnphys:
+            return dnphys
+        else:
+            if type is None:
+                type = DNode
+            return type(os=self, id=id, phys=dnphys)
+
+class DslDir(DNode):
+    def __init__(self, os, id, phys):
+        super(type(self),self).__init__(os=os, id=id, phys=phys)
+        assert(len(phys.dn_bonus) == DslDirPhys.sizeof())
+        self.phys = DslDirPhys(self.dnphys.dn_bonus)
+    
+    def get(self, id):
+        dnphys = self.os.get(id, get_dnphys=True)
+        return DslDataSet(os=self.os, id=id, phys=dnphys, dsldir=self)
+
+class DslDataSet(DNode):
+    def __init__(self, os, id, phys, dsldir=None):
+        assert(dsldir is not None)
+        super(type(self),self).__init__(os=os, id=id, phys=phys)
+        assert(len(phys.dn_bonus) == DslDataSetPhys.sizeof())
+        self.phys = DslDataSetPhys(phys.dn_bonus)
+        self.dsldir = dsldir
+
 class Zap(DNode):
-    def __init__(self, dmup, phys):
-        super(type(self),self).__init__(dmup, phys)
+    def __init__(self, os, id, phys):
+        super(type(self),self).__init__(os=os, id=id, phys=phys)
         self.crc = Crc64Poly
-        self.zap_phys = ZapPhys.from_bytes(self.read_block(0))
-        self.is_micro = self.zap_phys.is_micro
+        self.phys = ZapPhys.from_bytes(self.read_block(0))
+        self.is_micro = self.phys.is_micro
         self.load_table()
     
     def ls(self, keys=None, entries=None):
@@ -184,7 +148,7 @@ class Zap(DNode):
             for key in names:
                 if self.is_micro:
                     print('%-*s : %d' % (keylen, key,
-                        self.zap_phys.items[key].mze_value))
+                        self.phys.items[key].mze_value))
                 else:
                     ent = self.lookup(key)
                     if ent['intlen'] > 1:
@@ -198,7 +162,7 @@ class Zap(DNode):
                     print('%-*s : %s' % (keylen, key, str(value)))
     
     def ls_mzap(self, keys=None, entries=None):
-        for chunk in self.zap_phys.mz_chunk:
+        for chunk in self.phys.mz_chunk:
             if entries:
                 entries.append(chunk)
             keys.append(chunk.mze_name)
@@ -216,9 +180,9 @@ class Zap(DNode):
         if self.is_micro:
             if fmt is not None:
                 assert(fmt == 'num')
-                return [self.zap_phys.items[key].mze_value]
+                return [self.phys.items[key].mze_value]
             else:
-                return self.zap_phys.items[key]
+                return self.phys.items[key]
         
         hash = self.hash(key)
         leaf = self.leaf(self.hash2blk(hash))
@@ -236,7 +200,7 @@ class Zap(DNode):
         if self.is_micro:
             flags = 0
         else:
-            flags = self.zap_phys.zap_flags
+            flags = self.phys.zap_flags
         
         return {
             True  : 48,
@@ -244,9 +208,9 @@ class Zap(DNode):
         }[ZapF.hash64.has(flags)]
     
     def hash(self, key):
-        assert(self.zap_phys.zap_normflags == 0)
+        assert(self.phys.zap_normflags == 0)
         mask = ~((1 << (64 - self.hashbits())) - 1)
-        return self.crc.hash(key, self.zap_phys.zap_salt) & mask
+        return self.crc.hash(key, self.phys.zap_salt) & mask
     
     def cursor_init(self):
         return {
@@ -256,7 +220,7 @@ class Zap(DNode):
         }
     
     def leaf_hash(self, leaf, hash):
-        blk_shift = Int(self.phys.blksz).highbit() - 1
+        blk_shift = Int(self.dnphys.blksz).highbit() - 1
         leaf_hash_shift = blk_shift - 5
         shift = leaf_hash_shift + leaf.l_hdr.lh_prefix_len
         mask = (1 << leaf_hash_shift) - 1
@@ -356,8 +320,8 @@ class Zap(DNode):
         if self.is_micro:
             return
         
-        if self.zap_phys.table_embeded:
-            self.table = self.zap_phys.table
+        if self.phys.table_embeded:
+            self.table = self.phys.table
         else:
             raise Unsupported(self,
                 value='External Pointer Table')
@@ -367,18 +331,4 @@ class Zap(DNode):
         return ZapLeafPhys(self.read_block(blkid))
     
     def hash2blk(self, hash):
-        return self.table[hash >> (64 - self.zap_phys.zap_ptrtbl.zt_shift)]
-
-class DslDir(DNode):
-    def __init__(self, dmup, phys):
-        super(type(self),self).__init__(dmup, phys)
-        assert(len(self.phys.dn_bonus) == DslDirPhys.sizeof())
-        self.dd_phys = DslDirPhys(self.phys.dn_bonus)
-        # TODO: ...
-
-class DslDataSet(DNode):
-    def __init__(self, dmup, phys):
-        super(type(self),self).__init__(dmup, phys)
-        assert(len(self.phys.dn_bonus) == DslDataSetPhys.sizeof())
-        self.ds_phys = DslDataSetPhys(self.phys.dn_bonus)
-        # TODO: ...
+        return self.table[hash >> (64 - self.phys.zap_ptrtbl.zt_shift)]

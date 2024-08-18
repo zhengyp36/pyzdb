@@ -1,0 +1,27 @@
+DNode
+    .id     = int
+    .os     = ObjSet
+    .dnphys = DNodePhys
+
+ObjSet
+    .spa    = Spa
+    .ds     = DslDataSet
+    .phys   = ObjSetPhys
+    .metadn = DNode
+
+DslDir(DNode)
+    .os       = ObjSet
+    .dnphys   = DNodePhys
+    .phys     = DslDirPhys
+
+DslDataSet(DNode)
+    .os     = ObjSet
+    .dnphys = DNodePhys
+    .phys   = DslDataSetPhys
+    .dsldir = DslDir
+
+Zap(DNode)
+    .os       = ObjSet
+    .dnphys   = DNodePhys
+    .phys     = ZapPhys or MZapPhys
+    .is_micro = bool

@@ -17,7 +17,6 @@ class Spa(object):
         
         self.reader = BlkPtrReader(self.rvd)
         self.rootbp = self.uberblock.ub_rootbp
-        self.prtmgr = DmuPrtMgr(self)
         
         if do_open:
             self._open_impl()
@@ -25,13 +24,12 @@ class Spa(object):
         return True
     
     def _open_impl(self):
-        self.mos = ObjSet(self.prtmgr.uberblock, self.rootbp)
-        self.objdir = self.mos.get(1, type=Zap)
+        self.mos = ObjSet(spa=self, blkptr=self.rootbp)
+        self.rdir = self.mos.get(1, type=Zap)
         
-        obj = self.objdir.lookup('root_dataset', fmt='num')[0]
+        obj = self.rdir.lookup('root_dataset', fmt='num')[0]
         self.rdd = self.mos.get(obj, type=DslDir)
-        self.rds = self.mos.get(self.rdd.dd_phys.dd_head_dataset_obj,
-            type=DslDataSet)
+        self.rds = self.rdd.get(self.rdd.phys.dd_head_dataset_obj)
         
         # TODO: ...
     
