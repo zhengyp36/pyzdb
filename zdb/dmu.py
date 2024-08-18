@@ -112,9 +112,12 @@ class DslDir(DNode):
         assert(len(phys.dn_bonus) == DslDirPhys.sizeof())
         self.phys = DslDirPhys(self.dnphys.dn_bonus)
     
-    def get(self, id):
+    def get_ds(self, id):
         dnphys = self.os.get(id, get_dnphys=True)
         return DslDataSet(os=self.os, id=id, phys=dnphys, dsldir=self)
+    
+    def get_dd(self, id):
+        return self.os.get(id, type=type(self))
 
 class DslDataSet(DNode):
     def __init__(self, os, id, phys, dsldir=None):
@@ -123,6 +126,13 @@ class DslDataSet(DNode):
         assert(len(phys.dn_bonus) == DslDataSetPhys.sizeof())
         self.phys = DslDataSetPhys(phys.dn_bonus)
         self.dsldir = dsldir
+        self._myos = None
+    
+    @property
+    def myos(self):
+        if not self._myos:
+            self._myos = ObjSet(spa=self.os.spa, blkptr=self.phys.ds_bp)
+        return self._myos
 
 class Zap(DNode):
     def __init__(self, os, id, phys):

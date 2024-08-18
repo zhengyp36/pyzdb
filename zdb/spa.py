@@ -29,7 +29,7 @@ class Spa(object):
         
         obj = self.rdir.lookup('root_dataset', fmt='num')[0]
         self.rdd = self.mos.get(obj, type=DslDir)
-        self.rds = self.rdd.get(self.rdd.phys.dd_head_dataset_obj)
+        self.rds = self.rdd.get_ds(self.rdd.phys.dd_head_dataset_obj)
         
         # TODO: ...
     
