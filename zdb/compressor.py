@@ -15,7 +15,7 @@ class Compressor(object):
     TABLE = [
         [ 'inherit','ZIO_COMPRESS_INHERIT',  0, False ],
         [ 'on',     'ZIO_COMPRESS_ON',       1, False ],
-        [ 'off',    'ZIO_COMPRESS_OFF',      2, False ],
+        [ 'off',    'ZIO_COMPRESS_OFF',      2, True  ],
         [ 'lzjb',   'ZIO_COMPRESS_LZJB',     3, True  ],
         [ 'empty',  'ZIO_COMPRESS_EMPTY',    4, False ],
         [ 'gzip_1', 'ZIO_COMPRESS_GZIP_1',   5, True  ],
@@ -36,7 +36,14 @@ class Compressor(object):
         # 'entry' is an elemement of self.TABLE
         self.supported = entry[3]
     
+    @property
+    def is_off(self):
+        return str(self) in ['off']
+    
     def compress(self, usr_data):
+        if self.is_off:
+            return usr_data
+        
         self.__check_supported()
         
         mv_usr = memoryview(usr_data)
@@ -46,6 +53,10 @@ class Compressor(object):
         return bytearray(out_buffer[:out_len])
     
     def decompress(self, compressed_data, usr_data_length):
+        if self.is_off:
+            assert(len(compressed_data) == usr_data_length)
+            return compressed_data
+        
         self.__check_supported()
         
         mv_compr = memoryview(compressed_data)

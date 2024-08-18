@@ -3,6 +3,17 @@
 import sys
 import zdb
 
+def debug_zpl(spa):
+    master = spa.rds.myos.get(1, type=zdb.Zap)
+    print('Master>>>')
+    master.ls()
+    print('')
+    sa = spa.rds.myos.get(master.lookup('SA_ATTRS',fmt='num')[0],type=zdb.Zap)
+    sa.ls()
+    print('')
+    layout = spa.rds.myos.get(sa.lookup('LAYOUTS',fmt='num')[0],type=zdb.Zap)
+    layout.ls()
+
 def debug(spa):
     sep = '-' * 80
     print(sep)
@@ -23,6 +34,8 @@ def debug(spa):
     dn = spa.mos.get(rds_obj)
     zap = spa.mos.get(spa.rdd.phys.dd_child_dir_zapobj,type=zdb.Zap)
     zap.ls()
+    print('')
+    debug_zpl(spa)
     print('')
 
 if __name__ == '__main__':
@@ -50,9 +63,33 @@ if __name__ == '__main__':
                 print('Failed to open pool %s' % name)
 
 else:
+    def show_reg(val):
+        val = zdb.Int(val)
+        return 'num=%d,len=%d,bswap=%d' % (
+            val.bit_field( 0,16),
+            val.bit_field(24,16),
+            val.bit_field(16, 8)
+        )
+    
     print('NAME=%s' % __name__)
     disks = [ '/dev/sdh1' ]
     mgr = zdb.SpaManager(disks)
     spa = mgr.open_pool('poola')
     zap = spa.mos.get(spa.rdd.phys.dd_child_dir_zapobj,type=zdb.Zap)
     zap.ls()
+    
+    master = spa.rds.myos.get(1, type=zdb.Zap)
+    print('Master>>>')
+    master.ls()
+    print('')
+    print('SA_ATTRS>>>')
+    sa = spa.rds.myos.get(master.lookup('SA_ATTRS',fmt='num')[0],type=zdb.Zap)
+    sa.ls()
+    print('')
+    print('LAYOUTS>>>')
+    layout = spa.rds.myos.get(sa.lookup('LAYOUTS',fmt='num')[0],type=zdb.Zap)
+    layout.ls()
+    print('')
+    print('REGISTRY')
+    reg = spa.rds.myos.get(sa.lookup('REGISTRY',fmt='num')[0],type=zdb.Zap)
+    reg.ls(fmt=show_reg)

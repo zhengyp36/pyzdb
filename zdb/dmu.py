@@ -142,7 +142,7 @@ class Zap(DNode):
         self.is_micro = self.phys.is_micro
         self.load_table()
     
-    def ls(self, keys=None, entries=None):
+    def ls(self, keys=None, entries=None, fmt=str):
         if keys is None:
             names = []
         else:
@@ -157,8 +157,8 @@ class Zap(DNode):
             keylen = max([len(key) for key in names])
             for key in names:
                 if self.is_micro:
-                    print('%-*s : %d' % (keylen, key,
-                        self.phys.items[key].mze_value))
+                    print('%-*s : %s' % (keylen, key,
+                        fmt(self.phys.items[key].mze_value)))
                 else:
                     ent = self.lookup(key)
                     if ent['intlen'] > 1:
@@ -169,7 +169,7 @@ class Zap(DNode):
                             value = value[0]
                     else:
                         value = '--'
-                    print('%-*s : %s' % (keylen, key, str(value)))
+                    print('%-*s : %s' % (keylen, key, fmt(value)))
     
     def ls_mzap(self, keys=None, entries=None):
         for chunk in self.phys.mz_chunk:
@@ -247,7 +247,7 @@ class Zap(DNode):
             if cursor['leaf_blkid'] != blk:
                 cursor['leaf_blkid'] = blk
                 cursor['leaf'] = self.leaf(blk)
-                blk_shift = Int(self.phys.blksz).highbit() - 1
+                blk_shift = Int(self.dnphys.blksz).highbit() - 1
                 leaf_hash_shift = blk_shift - 5
                 cursor['nentry'] = 1 << leaf_hash_shift
             return cursor['leaf']
