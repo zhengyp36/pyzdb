@@ -855,5 +855,5 @@ class DslDataSetPhys(CStruct):
         [ 'ds_next_clones_obj',    8, 'u64',       'str'      ],
         [ 'ds_props_obj',          8, 'u64',       'str'      ],
         [ 'ds_userrefs_obj',       8, 'u64',       'str'      ],
-        [ 'ds_pad',               40, 'u64.array', 'str'      ],
+        [ 'ds_pad',               40, 'u64.array', '--'       ],
     ]

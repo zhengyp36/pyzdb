@@ -25,11 +25,13 @@ class Spa(object):
         return True
     
     def _open_impl(self):
-        self.meta_os = ObjSet(self.prtmgr.uberblock, self.rootbp)
-        self.objdir = self.meta_os.get(1, type=Zap)
+        self.mos = ObjSet(self.prtmgr.uberblock, self.rootbp)
+        self.objdir = self.mos.get(1, type=Zap)
         
-        rds_obj = self.objdir.lookup('root_dataset', fmt='num')[0]
-        self.dsldir = self.meta_os.get(rds_obj, type=DslDir)
+        obj = self.objdir.lookup('root_dataset', fmt='num')[0]
+        self.rdd = self.mos.get(obj, type=DslDir)
+        self.rds = self.mos.get(self.rdd.dd_phys.dd_head_dataset_obj,
+            type=DslDataSet)
         
         # TODO: ...
     

@@ -169,40 +169,47 @@ class Zap(DNode):
         self.load_table()
     
     def ls(self, keys=None, entries=None):
-        if self.is_micro:
-            return self.ls_mzap(keys=keys, entries=entries)
-        else:
-            return self.ls_fat(keys=keys, entries=entries)
-    
-    def ls_mzap(self, keys=None, entries=None):
         if keys is None:
             names = []
         else:
             names = keys
         
+        if self.is_micro:
+            self.ls_mzap(keys=names, entries=entries)
+        else:
+            self.ls_fat(keys=names, entries=entries)
+        
+        if keys is None and entries is None:
+            keylen = max([len(key) for key in names])
+            for key in names:
+                if self.is_micro:
+                    print('%-*s : %d' % (keylen, key,
+                        self.zap_phys.items[key].mze_value))
+                else:
+                    ent = self.lookup(key)
+                    if ent['intlen'] > 1:
+                        value = Int.from_bytes_to_list(ent['value'],
+                            int_size=ent['intlen'],
+                            endian=Endian.big)
+                        if len(value) == 1:
+                            value = value[0]
+                    else:
+                        value = '--'
+                    print('%-*s : %s' % (keylen, key, str(value)))
+    
+    def ls_mzap(self, keys=None, entries=None):
         for chunk in self.zap_phys.mz_chunk:
             if entries:
                 entries.append(chunk)
-            names.append(chunk.mze_name)
-        
-        if keys is None and entries is None:
-            print('\n'.join(names))
+            keys.append(chunk.mze_name)
     
     def ls_fat(self, keys=None, entries=None):
-        if keys is None:
-            names = []
-        else:
-            names = keys
-        
         cursor = self.cursor_init()
         while self.cursor_retrieve(cursor):
             if entries is not None:
                 entries.append(cursor['entry'])
-            names.append(cursor['entry']['name'])
+            keys.append(cursor['entry']['name'])
             self.cursor_advance(cursor)
-        
-        if keys is None and entries is None:
-            print('\n'.join(names))
     
     def lookup(self, key, fmt=None):
         '''The argument fmt should be one of ['str','num',None]'''
@@ -367,4 +374,11 @@ class DslDir(DNode):
         super(type(self),self).__init__(dmup, phys)
         assert(len(self.phys.dn_bonus) == DslDirPhys.sizeof())
         self.dd_phys = DslDirPhys(self.phys.dn_bonus)
+        # TODO: ...
+
+class DslDataSet(DNode):
+    def __init__(self, dmup, phys):
+        super(type(self),self).__init__(dmup, phys)
+        assert(len(self.phys.dn_bonus) == DslDataSetPhys.sizeof())
+        self.ds_phys = DslDataSetPhys(self.phys.dn_bonus)
         # TODO: ...

@@ -1,0 +1,27 @@
+dsl_pool
+    |
+    |-> meta_os<obj_dir>
+    |   |-> obj_dir<id=1,zap>
+    |
+    |-> root_dir<dsl_dir>
+        |-> ds->os->fs
+        |
+        |-> children
+            |
+            |-> $MOS<dsl_dir>
+            |
+            |-> $FREE<dsl_dir>
+            |
+            |-> $ORIGIN<dsl_dir>
+            |   |-> ds
+            |       |-> snap(origin)
+            |
+            |-> fs1<dsl_dir>
+            |   |-> ds->os->fs
+            |
+            |-> zvol1<dsl_dir>
+            |   |-> ds->os->fs
+            |
+            |-> ...
+
+dsl = dsl_dir + [dsl_dataset]

@@ -20,8 +20,8 @@ def debug(spa):
     
     rds_obj = spa.objdir.lookup('root_dataset',fmt='num')[0]
     print('root_dataset objid = ' + str(rds_obj))
-    dn = spa.meta_os.get(rds_obj)
-    zap = spa.meta_os.get(spa.dsldir.dd_phys.dd_child_dir_zapobj,type=zdb.Zap)
+    dn = spa.mos.get(rds_obj)
+    zap = spa.mos.get(spa.rdd.dd_phys.dd_child_dir_zapobj,type=zdb.Zap)
     zap.ls()
     print('')
 
@@ -54,5 +54,5 @@ else:
     disks = [ '/dev/sdh1' ]
     mgr = zdb.SpaManager(disks)
     spa = mgr.open_pool('poola')
-    zap = spa.meta_os.get(spa.dsldir.dd_phys.dd_child_dir_zapobj,type=zdb.Zap)
+    zap = spa.mos.get(spa.rdd.dd_phys.dd_child_dir_zapobj,type=zdb.Zap)
     zap.ls()
