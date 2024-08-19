@@ -403,6 +403,14 @@ class DNF(object):
         [ 'spill_blkptr',          'DNODE_FLAG_SPILL_BLKPTR',          (1 << 2) ],
         [ 'userobjused_accounted', 'DNODE_FLAG_USEROBJUSED_ACCOUNTED', (1 << 3) ],
     ]
+    
+    @classmethod
+    def detail(cls, flag):
+        values = []
+        for m in cls.MEMBERS_LIST:
+            if int(m) & flag:
+                values.append(m)
+        return '|'.join([str(m) for m in values])
 
 class DNodePhys(CStruct):
     @property
@@ -857,3 +865,42 @@ class DslDataSetPhys(CStruct):
         [ 'ds_userrefs_obj',       8, 'u64',       'str'      ],
         [ 'ds_pad',               40, 'u64.array', '--'       ],
     ]
+
+class SaHdrPhys(CStruct):
+    layout_detail = lambda val,inst : 'layout.%d.size.%d' % (
+        Int(val).bit_field(0,10),
+        ((Int(val).bit_field(10,6) << 3)),
+    )
+    
+    STRUCT_NAME = 'sa_hdr_phys_t'
+    FIELDS = [
+        [ 'sa_magic',       4, 'u32',         'hex' ],
+        [ 'sa_layout_info', 2, 'u16', layout_detail ],
+        [ 'sa_lengths',     2, 'u16.array',   'str' ],
+    ]
+    MAGIC = 0x2F505A  # ZFS SA
+    
+    @property
+    def hdrsize(self):
+        return Int(self.sa_layout_info).bit_field(10,6) << 3
+    
+    @property
+    def layout_num(self):
+        return Int(self.sa_layout_info).bit_field(0,10)
+    
+    def _do_init(self, bytes):
+        self.buffer = memoryview(bytes)
+        
+        self._endian = None
+        for endian in [Endian.little, Endian.big]:
+            if Int.from_bytes(self.buffer[0:4], endian=endian) == self.MAGIC:
+                self._endian = endian
+                break
+        if self._endian is None:
+            raise MagicError(self)
+        
+        self.set_fields(self.buffer)
+        self.sa_lengths += Int.from_bytes_to_list(
+            self.buffer[self.sizeof():self.hdrsize],
+            int_size=2
+        )

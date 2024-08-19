@@ -144,6 +144,57 @@ class DslDataSet(DNode):
         self.dsldir = dsldir
         self._myos = None
         self._master = None
+        self._init_attrs()
+    
+    def _init_attrs(self):
+        self.obj_sa_attrs = self.master.lookup('SA_ATTRS', fmt='num')[0]
+        self.zap_sa_attrs = self.myos.get(self.obj_sa_attrs, type=Zap)
+        
+        self.obj_registry = self.zap_sa_attrs.lookup('REGISTRY', fmt='num')[0]
+        self.zap_registry = self.myos.get(self.obj_registry, type=Zap)
+        
+        self.obj_layouts = self.zap_sa_attrs.lookup('LAYOUTS', fmt='num')[0]
+        self.zap_layouts = self.myos.get(self.obj_layouts, type=Zap)
+        
+        assert(self.zap_registry.is_micro)
+        
+        entries = []
+        self.zap_registry.ls(entries=entries)
+        entries.sort(key = lambda chk : Int(chk.mze_value).bit_field(0,16))
+        
+        self.registry_dict,self.registry_list = {},[]
+        for chk in entries:
+            val = Int(chk.mze_value)
+            ent = {
+                'name'  : chk.mze_name,
+                'num'   : val.bit_field( 0,16),
+                'len'   : val.bit_field(24,16),
+                'bswap' : val.bit_field(16, 8),
+            }
+            self.registry_dict[ent['num']] = ent
+            self.registry_list.append(ent)
+        
+        self.registry_list.sort(key = lambda ent : ent['num'])
+    
+    def ls_layouts(self, layout_num=None):
+        if layout_num is None:
+            self.zap_layouts.ls()
+        else:
+            entries = []
+            for num in self.zap_layouts.lookup(str(layout_num), fmt='num'):
+                entries.append(self.registry_dict[num])
+            self.ls_registry(entries)
+    
+    def ls_registry(self, entries=None):
+        if entries is None:
+            entries = self.registry_list
+        
+        keylen = max([len(ent['name']) for ent in entries])
+        print('\n'.join([
+            '%-*s : num=%02d, len=%02d, bswap=%d' % (
+                keylen, ent['name'], ent['num'], ent['len'], ent['bswap']
+            ) for ent in entries
+        ]))
     
     @property
     def myos(self):
@@ -196,7 +247,7 @@ class Zap(DNode):
     
     def ls_mzap(self, keys=None, entries=None):
         for chunk in self.phys.mz_chunk:
-            if entries:
+            if entries is not None:
                 entries.append(chunk)
             keys.append(chunk.mze_name)
     
