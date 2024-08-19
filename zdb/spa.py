@@ -10,6 +10,7 @@ class Spa(object):
         self.rvd = root_vdev
         self.name = root_vdev.name
         self.uberblock = None
+        self.opened = False
     
     def open(self, do_open=True):
         self.uberblock = self.sel_ub()
@@ -24,6 +25,9 @@ class Spa(object):
         return True
     
     def _open_impl(self):
+        if self.opened:
+            return
+        
         self.mos = ObjSet(spa=self, blkptr=self.rootbp)
         self.rdir = self.mos.get(1, type=Zap)
         
@@ -32,6 +36,8 @@ class Spa(object):
         self.rds = self.rdd.get_ds(self.rdd.phys.dd_head_dataset_obj)
         
         # TODO: ...
+        
+        self.opened = True
     
     def sel_ub(self):
         ubs = []
@@ -69,18 +75,45 @@ class Spa(object):
 class SpaManager(object):
     def __init__(self, disks=None):
         self.vdmgr = VDevManager()
+        self.spas = {}
         self.vdmgr.scan(disks=disks)
     
     def ls(self):
         self.vdmgr.ls()
     
+    @classmethod
+    def split_path(cls, path):
+        return [i for i in path.split('/') if i]
+    
     def open_pool(self, pool, do_open=True):
-        rvd = self.vdmgr.lookup(pool)
-        if not rvd or not rvd.open():
-            return None
+        components = self.split_path(pool)
+        pool_name = components[0]
         
-        spa = Spa(root_vdev=rvd)
+        if pool_name in self.spas:
+            spa = self.spas[pool_name]
+        else:
+            rvd = self.vdmgr.lookup(pool_name)
+            if not rvd or not rvd.open():
+                return None
+            spa = Spa(root_vdev=rvd)
+            self.spas[pool_name] = spa
+        
         if spa.open(do_open=do_open):
             return spa
         else:
             return None
+    
+    def open_ds(self, name):
+        components = self.split_path(name)
+        spa = self.open_pool(components[0])
+        if not spa:
+            return None
+        dd = spa.rdd
+        
+        components = components[1:]
+        while components:
+            comp = components[0]
+            components = components[1:]
+            dd = dd.get_dd_by_name(comp)
+        
+        return dd.get_ds(dd.phys.dd_head_dataset_obj)

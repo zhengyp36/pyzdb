@@ -111,6 +111,12 @@ class DslDir(DNode):
         super(type(self),self).__init__(os=os, id=id, phys=phys)
         assert(len(phys.dn_bonus) == DslDirPhys.sizeof())
         self.phys = DslDirPhys(self.dnphys.dn_bonus)
+        # Is it right that all objects of dsl-dir is stored in meta-os
+        if self.phys.dd_child_dir_zapobj > 0:
+            self.child = self.os.spa.mos.get(
+                self.phys.dd_child_dir_zapobj, type=Zap)
+        else:
+            self.child = None
     
     def get_ds(self, id):
         dnphys = self.os.get(id, get_dnphys=True)
@@ -118,6 +124,16 @@ class DslDir(DNode):
     
     def get_dd(self, id):
         return self.os.get(id, type=type(self))
+    
+    def get_dd_by_name(self, name):
+        if not self.child:
+            return None
+        else:
+            try:
+                id = self.child.lookup(name, fmt='num')[0]
+                return self.get_dd(id)
+            except:
+                return None
 
 class DslDataSet(DNode):
     def __init__(self, os, id, phys, dsldir=None):
@@ -127,12 +143,19 @@ class DslDataSet(DNode):
         self.phys = DslDataSetPhys(phys.dn_bonus)
         self.dsldir = dsldir
         self._myos = None
+        self._master = None
     
     @property
     def myos(self):
         if not self._myos:
             self._myos = ObjSet(spa=self.os.spa, blkptr=self.phys.ds_bp)
         return self._myos
+    
+    @property
+    def master(self):
+        if self._master is None:
+            self._master = self.myos.get(1, type=Zap)
+        return self._master
 
 class Zap(DNode):
     def __init__(self, os, id, phys):
