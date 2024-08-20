@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 
+import time
 from .zctypes import *
 from .utils import *
 from .compressor import Compressor
@@ -95,6 +96,10 @@ class ObjSet(object):
         self.blkptr = blkptr
     
     def get(self, id, type=None, get_dnphys=False):
+        orig_id = id
+        if type is not None and issubclass(type,ZNode):
+            id = Int(orig_id).bit_field(0,48)
+        
         dnsz = DNodePhys.sizeof()
         assert(id > 0 and dnsz == 512)
         dnphys = DNodePhys(self.metadn.read(id * dnsz, dnsz))
@@ -104,36 +109,38 @@ class ObjSet(object):
         else:
             if type is None:
                 type = DNode
-            return type(os=self, id=id, phys=dnphys)
+            return type(os=self, id=orig_id, phys=dnphys)
 
 class DslDir(DNode):
     def __init__(self, os, id, phys):
         super(type(self),self).__init__(os=os, id=id, phys=phys)
         assert(len(phys.dn_bonus) == DslDirPhys.sizeof())
         self.phys = DslDirPhys(self.dnphys.dn_bonus)
-        # Is it right that all objects of dsl-dir is stored in meta-os
+        # Is it right that all objects of dsl-dir is stored in meta-os ?
         if self.phys.dd_child_dir_zapobj > 0:
             self.child = self.os.spa.mos.get(
                 self.phys.dd_child_dir_zapobj, type=Zap)
         else:
             self.child = None
+        
+        self.parent_dd = None
+        self.name = ''
+    
+    def set(self, parent=None, name=''):
+        if parent:
+            self.parent_dd = parent
+        if name:
+            self.name = name
     
     def get_ds(self, id):
         dnphys = self.os.get(id, get_dnphys=True)
         return DslDataSet(os=self.os, id=id, phys=dnphys, dsldir=self)
     
-    def get_dd(self, id):
-        return self.os.get(id, type=type(self))
-    
-    def get_dd_by_name(self, name):
-        if not self.child:
-            return None
-        else:
-            try:
-                id = self.child.lookup(name, fmt='num')[0]
-                return self.get_dd(id)
-            except:
-                return None
+    def get_dd(self, name):
+        id = self.child.lookup(name, fmt='num')[0]
+        dd = self.os.get(id, type=type(self))
+        dd.set(parent=self, name=name)
+        return dd
 
 class DslDataSet(DNode):
     def __init__(self, os, id, phys, dsldir=None):
@@ -144,6 +151,7 @@ class DslDataSet(DNode):
         self.dsldir = dsldir
         self._myos = None
         self._master = None
+        self._rootdir = None
         self._init_attrs()
     
     def _init_attrs(self):
@@ -184,6 +192,14 @@ class DslDataSet(DNode):
             for num in self.zap_layouts.lookup(str(layout_num), fmt='num'):
                 entries.append(self.registry_dict[num])
             self.ls_registry(entries)
+    ls_layout = ls_layouts
+    
+    def get_layout(self, layout_num):
+        entries = []
+        for num in self.zap_layouts.lookup(str(layout_num), fmt='num'):
+            ent = self.registry_dict[num]
+            entries.append({k:ent[k] for k in ent})
+        return entries
     
     def ls_registry(self, entries=None):
         if entries is None:
@@ -199,7 +215,11 @@ class DslDataSet(DNode):
     @property
     def myos(self):
         if not self._myos:
-            self._myos = ObjSet(spa=self.os.spa, blkptr=self.phys.ds_bp)
+            self._myos = ObjSet(
+                spa    = self.os.spa,
+                blkptr = self.phys.ds_bp,
+                ds     = self
+            )
         return self._myos
     
     @property
@@ -207,6 +227,141 @@ class DslDataSet(DNode):
         if self._master is None:
             self._master = self.myos.get(1, type=Zap)
         return self._master
+    
+    @property
+    def rootdir(self):
+        if self._rootdir is None:
+            obj = self.master.lookup('ROOT',fmt='num')[0] | (int(DT.dir) << 60)
+            self._rootdir = self.myos.get(obj, type=ZNode)
+        return self._rootdir
+
+class SA(object):
+    def __init__(self, znode, bonus_type):
+        if bonus_type == 'bonus':
+            buffer = znode.dnphys.dn_bonus
+        else:
+            assert(bonus_type == 'spill')
+            buffer = znode.os.spa.reader.read(znode.dnphys.dn_spill)
+        
+        self.znode = znode
+        self.bonus_type = bonus_type
+        self.phys = SaHdrPhys(buffer)
+        self.attrs = []
+        self.inited = False
+    
+    def do_init(self):
+        if self.inited:
+            return
+        
+        conv_unsigned = lambda b,e : Int.from_bytes(b,endian=e)
+        
+        self.convert_table = {
+            'ZPL_ATIME'      : self.convert_time_buffer,
+            'ZPL_MTIME'      : self.convert_time_buffer,
+            'ZPL_CTIME'      : self.convert_time_buffer,
+            'ZPL_CRTIME'     : self.convert_time_buffer,
+            'ZPL_GEN'        : conv_unsigned,
+            'ZPL_MODE'       : conv_unsigned,
+            'ZPL_SIZE'       : conv_unsigned,
+            'ZPL_PARENT'     : conv_unsigned,
+            'ZPL_LINKS'      : conv_unsigned,
+            'ZPL_XATTR'      : conv_unsigned, # TODO: the usage of xattr?
+            'ZPL_RDEV'       : conv_unsigned,
+            'ZPL_FLAGS'      : conv_unsigned,
+            'ZPL_UID'        : conv_unsigned,
+            'ZPL_GID'        : conv_unsigned,
+            'ZPL_DACL_COUNT' : conv_unsigned,
+            'ZPL_PROJID'     : conv_unsigned,
+            'ZPL_DACL_ACES'  : ZfsAceHdr.from_bytes, # TODO: parse ACE mask ...
+        }
+        
+        layout = self.znode.os.ds.get_layout(self.phys.layout_num)
+        
+        zeros = [i for i in range(len(layout)) if layout[i]['len'] == 0]
+        if len(zeros) > 0:
+            lengths = self.phys.sa_lengths
+            assert(len(lengths) == len(zeros))
+            for i in range(len(zeros)):
+                assert(lengths[i] > 0)
+                layout[zeros[i]]['len'] = lengths[i]
+        
+        self.layout = layout
+        self.parse_attrs()
+        self.inited = True
+    
+    def parse_attrs(self):
+        pos,self.attrs = 0,[]
+        for ent in self.layout:
+            if ent['name'] in self.convert_table:
+                conv = self.convert_table[ent['name']]
+            else:
+                conv = lambda _1,_2 : None
+            
+            buffer = self.phys.attr_buffer[pos:pos+ent['len']]
+            self.attrs.append({
+                'NAME'   : ent['name'],
+                'name'   : ent['name'][4:].lower(),
+                'buffer' : buffer,
+                'bswap'  : ent['bswap'],
+                'value'  : conv(buffer, self.phys.endian)
+            })
+            pos += ent['len']
+    
+    def ls(self):
+        self.do_init()
+        keylen = max([len(a['name']) for a in self.attrs ])
+        for i in range(len(self.attrs)):
+            attr = self.attrs[i]
+            if attr['NAME'] == 'ZPL_DACL_ACES':
+                print('[%02d]%-*s : <%d>' % (
+                    i, keylen,attr['name'],len(attr['value'])))
+            else:
+                print('[%02d]%-*s : %s' % (
+                    i, keylen,attr['name'],str(attr['value'])))
+    
+    @classmethod
+    def convert_time_buffer(cls, buffer, endian, fmt='%Y/%m/%d %H:%M:%S'):
+        sec,nsec = Int.from_bytes_to_list(buffer, int_size=8, endian=endian)
+        if nsec >= 1000 * 1000:
+            assert(nsec < 1e9)
+            str_nsec = ('%.9f' % (nsec * 1e-9))[2:][:3]
+        return '%s.%s[%s]' % (
+            time.strftime(fmt,time.localtime(sec)), str_nsec, time.tzname[-1]
+        )
+
+class ZNode(DNode):
+    def __init__(self, os, id, phys):
+        rawId = Int(id)
+        dt,id = DT.from_int(rawId.bit_field(60,4)), rawId.bit_field(0,48)
+        
+        assert(os.ds)
+        super(type(self),self).__init__(os=os, id=id, phys=phys)
+        self.dt = dt
+        
+        self.sa_bonus = SA(self, 'bonus')
+        if self.dnphys.dn_spill:
+            self.sa_spill = SA(self, 'spill')
+        else:
+            self.sa_spill = None
+        
+        if self.dt == DT.dir:
+            self.zap = Zap(os, id, self.dnphys)
+            self.items = {}
+    
+    @property
+    def is_dir(self):
+        return self.dt == DT.dir
+    
+    def ls_dir(self):
+        assert(self.is_dir)
+        self.zap.ls(fmt=hex)
+    
+    def get(self, name):
+        assert(self.is_dir)
+        if name not in self.items:            
+            objid = self.zap.lookup(name, fmt='num')[0]
+            self.items[name] = self.os.get(objid, type=type(self))
+        return self.items[name]
 
 class Zap(DNode):
     def __init__(self, os, id, phys):

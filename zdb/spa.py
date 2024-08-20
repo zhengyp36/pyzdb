@@ -114,6 +114,6 @@ class SpaManager(object):
         while components:
             comp = components[0]
             components = components[1:]
-            dd = dd.get_dd_by_name(comp)
+            dd = dd.get_dd(comp)
         
         return dd.get_ds(dd.phys.dd_head_dataset_obj)

@@ -403,14 +403,6 @@ class DNF(object):
         [ 'spill_blkptr',          'DNODE_FLAG_SPILL_BLKPTR',          (1 << 2) ],
         [ 'userobjused_accounted', 'DNODE_FLAG_USEROBJUSED_ACCOUNTED', (1 << 3) ],
     ]
-    
-    @classmethod
-    def detail(cls, flag):
-        values = []
-        for m in cls.MEMBERS_LIST:
-            if int(m) & flag:
-                values.append(m)
-        return '|'.join([str(m) for m in values])
 
 class DNodePhys(CStruct):
     @property
@@ -888,6 +880,10 @@ class SaHdrPhys(CStruct):
     def layout_num(self):
         return Int(self.sa_layout_info).bit_field(0,10)
     
+    @property
+    def attr_buffer(self):
+        return self.buffer[self.hdrsize:]
+    
     def _do_init(self, bytes):
         self.buffer = memoryview(bytes)
         
@@ -904,3 +900,110 @@ class SaHdrPhys(CStruct):
             self.buffer[self.sizeof():self.hdrsize],
             int_size=2
         )
+
+@EnumType
+class DT(object):
+    '''Imported from C-Enum from dirent.h'''
+    TABLE = [
+        [ 'unknown', 'DT_UNKNOWN', 0 ],
+        [ 'fifo',    'DT_FIFO',    1 ],
+        [ 'chr',     'DT_CHR',     2 ],
+        [ 'dir',     'DT_DIR',     4 ],
+        [ 'blk',     'DT_BLK',     6 ],
+        [ 'reg',     'DT_REG',     8 ],
+        [ 'lnk',     'DT_LNK',    10 ],
+        [ 'sock',    'DT_SOCK',   12 ],
+        [ 'wht',     'DT_WHT',    14 ],
+    ]
+
+@EnumType
+class ACE_TF(object):
+    '''ACE_TF is ACE_TYPE_FLAGS defined in acl.h'''
+    TABLE = [
+        [ 'file_inherit',         'ACE_FILE_INHERIT_ACE',           0x0001 ],
+        [ 'dir_inherit',          'ACE_DIRECTORY_INHERIT_ACE',      0x0002 ],
+        [ 'no_propagate_inherit', 'ACE_NO_PROPAGATE_INHERIT_ACE',   0x0004 ],
+        [ 'inherit_only',         'ACE_INHERIT_ONLY_ACE',           0x0008 ],
+        [ 'succ_access',          'ACE_SUCCESSFUL_ACCESS_ACE_FLAG', 0x0010 ],
+        [ 'fail_access',          'ACE_FAILED_ACCESS_ACE_FLAG',     0x0020 ],
+        [ 'identifier_group',     'ACE_IDENTIFIER_GROUP',           0x0040 ],
+        [ 'inherit',              'ACE_INHERITED_ACE',              0x0080 ],
+        [ 'owner',                'ACE_OWNER',                      0x1000 ],
+        [ 'group',                'ACE_GROUP',                      0x2000 ],
+        [ 'everyone',             'ACE_EVERYONE',                   0x4000 ],
+    ]
+    
+    @classmethod
+    def is_ogr(cls, flags):
+        '''oge is owner-group-everyone'''
+        
+        owner = int(cls.owner)
+        owning_group = int(cls.group) | int(cls.identifier_group)
+        everyone = int(cls.everyone)
+        
+        flags &= owner | everyone | owning_group
+        return flags in [owner, everyone, owning_group]
+
+@EnumType
+class ACE_TYPE(object):
+    TABLE = [
+        [ 'allow',          'ACE_ACCESS_ALLOWED_ACE_TYPE',                 0x00 ],
+        [ 'deny',           'ACE_ACCESS_DENIED_ACE_TYPE',                  0x01 ],
+        [ 'audit',          'ACE_SYSTEM_AUDIT_ACE_TYPE',                   0x02 ],
+        [ 'alarm',          'ACE_SYSTEM_ALARM_ACE_TYPE',                   0x03 ],
+        [ 'allowed_compnd', 'ACE_ACCESS_ALLOWED_COMPOUND_ACE_TYPE',        0x04 ],
+        [ 'allowed_obj',    'ACE_ACCESS_ALLOWED_OBJECT_ACE_TYPE',          0x05 ],
+        [ 'denied_obj',     'ACE_ACCESS_DENIED_OBJECT_ACE_TYPE',           0x06 ],
+        [ 'audit_obj',      'ACE_SYSTEM_AUDIT_OBJECT_ACE_TYPE',            0x07 ],
+        [ 'alarm_obj',      'ACE_SYSTEM_ALARM_OBJECT_ACE_TYPE',            0x08 ],
+        [ 'allowed_cb',     'ACE_ACCESS_ALLOWED_CALLBACK_ACE_TYPE',        0x09 ],
+        [ 'denied_cb',      'ACE_ACCESS_DENIED_CALLBACK_ACE_TYPE',         0x0A ],
+        [ 'allowed_cb_obj', 'ACE_ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE', 0x0B ],
+        [ 'denied_cb_obj',  'ACE_ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE',  0x0C ],
+        [ 'audit_cb',       'ACE_SYSTEM_AUDIT_CALLBACK_ACE_TYPE',          0x0D ],
+        [ 'alarm_cb',       'ACE_SYSTEM_ALARM_CALLBACK_ACE_TYPE',          0x0E ],
+        [ 'audit_cb_obj',   'ACE_SYSTEM_AUDIT_CALLBACK_OBJECT_ACE_TYPE',   0x0F ],
+        [ 'alarm_cb_obj',   'ACE_SYSTEM_ALARM_CALLBACK_OBJECT_ACE_TYPE',   0x10 ],
+    ]
+    
+    def get_ace_type(self, flags):
+        cls = type(self)
+        if self in [cls.allowed_obj,cls.denied_obj,cls.audit_obj,cls.alarm_obj]:
+            return 'ace_obj'
+        
+        if (self in [cls.allow,cls.deny]) and ACE_TF.is_ogr(flags):
+            return 'ace_hdr'
+        else:
+            return 'ace'
+
+class ZfsAceHdr(CStruct):
+    STRUCT_NAME = 'zfs_ace_hdr_t'
+    FIELDS = [
+        [ 'z_type',        2, 'u16', 'hex' ],
+        [ 'z_flags',       2, 'u16', 'hex' ],
+        [ 'z_access_mask', 4, 'u32', 'oct' ],
+    ]
+    
+    # TODO: parse zfs_ace_t & zfs_object_ace_t ...
+    FIELDS_FOR_ACE = [
+        [ 'z_fuid',        8, 'u64', 'str' ],
+    ]
+    
+    @property
+    def type(self):
+        return ACE_TYPE.from_int(self.z_type).get_ace_type(self.z_flags)
+    
+    @classmethod
+    def from_bytes(cls, bytes, endian=Endian.default):
+        array = []
+        
+        buffer = memoryview(bytes)
+        pos,sz = 0,cls.sizeof()
+        
+        while pos+sz <= len(buffer):
+            hdr = cls(buffer[pos:pos+sz], endian=endian)
+            pos += sz
+            assert(hdr.type == 'ace_hdr')
+            array.append(hdr)
+        
+        return array

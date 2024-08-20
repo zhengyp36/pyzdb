@@ -82,6 +82,14 @@ def EnumType(TypeDef):
             return not not (self._value & flag)
         
         @classmethod
+        def detail(cls, flag):
+            values = []
+            for m in cls.MEMBERS_LIST:
+                if int(m) & flag:
+                    values.append(m)
+            return '|'.join([str(m) for m in values])
+        
+        @classmethod
         def from_str(cls, name):
             return cls.MEMBERS_DICT[str(name)]
         
@@ -104,7 +112,7 @@ def EnumType(TypeDef):
             print('%d -> %d' % (start, last))
         
         @classmethod
-        def ls(cls, sort=False):
+        def ls(cls, sort=False, fmt=str):
             if sort:
                 members = cls.MEMBERS_LIST[:]
                 members.sort(key=lambda m : m._value)
@@ -114,8 +122,8 @@ def EnumType(TypeDef):
             l1 = max([len(i._name) for i in members])
             l2 = max([len(i._enum_name) for i in members])
             for inst in members:
-                print('%-*s : %-*s : %d' % (
-                    l1, inst._name, l2, inst._enum_name, inst._value
+                print('%-*s : %-*s : %s' % (
+                    l1, inst._name, l2, inst._enum_name, fmt(inst._value)
                 ))
         
         __doc__ = TypeDef.__doc__
@@ -354,6 +362,7 @@ class CStruct(object):
     FORMAT_TABLE = {
         'str'     : lambda val,inst : str(val),
         'hex'     : lambda val,inst : hex(val).strip('L'),
+        'oct'     : lambda val,inst : oct(val).strip('L'),
         'magic32' : lambda val,inst : '0x' + hex(val).strip('L')[2:].zfill(8),
         'magic64' : lambda val,inst : '0x' + hex(val).strip('L')[2:].zfill(16),
     }
