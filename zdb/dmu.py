@@ -149,12 +149,20 @@ class DslDataSet(DNode):
         assert(len(phys.dn_bonus) == DslDataSetPhys.sizeof())
         self.phys = DslDataSetPhys(phys.dn_bonus)
         self.dsldir = dsldir
+        
         self._myos = None
-        self._master = None
-        self._rootdir = None
-        self._init_attrs()
+        self.os_type = str(OST.from_int(self.myos.phys.os_type))
+        
+        if self.os_type == 'zfs':
+            self._master = None
+            self._rootdir = None
+            self._init_attrs()
+        
+        elif self.os_type == 'zvol':
+            self._property = None
     
     def _init_attrs(self):
+        assert(self.os_type == 'zfs')
         self.obj_sa_attrs = self.master.lookup('SA_ATTRS', fmt='num')[0]
         self.zap_sa_attrs = self.myos.get(self.obj_sa_attrs, type=Zap)
         
@@ -185,6 +193,7 @@ class DslDataSet(DNode):
         self.registry_list.sort(key = lambda ent : ent['num'])
     
     def ls_layouts(self, layout_num=None):
+        assert(self.os_type == 'zfs')
         if layout_num is None:
             self.zap_layouts.ls()
         else:
@@ -195,6 +204,7 @@ class DslDataSet(DNode):
     ls_layout = ls_layouts
     
     def get_layout(self, layout_num):
+        assert(self.os_type == 'zfs')
         entries = []
         for num in self.zap_layouts.lookup(str(layout_num), fmt='num'):
             ent = self.registry_dict[num]
@@ -202,6 +212,7 @@ class DslDataSet(DNode):
         return entries
     
     def ls_registry(self, entries=None):
+        assert(self.os_type == 'zfs')
         if entries is None:
             entries = self.registry_list
         
@@ -224,16 +235,25 @@ class DslDataSet(DNode):
     
     @property
     def master(self):
+        assert(self.os_type == 'zfs')
         if self._master is None:
             self._master = self.myos.get(1, type=Zap)
         return self._master
     
     @property
     def rootdir(self):
+        assert(self.os_type == 'zfs')
         if self._rootdir is None:
             obj = self.master.lookup('ROOT',fmt='num')[0] | (int(DT.dir) << 60)
             self._rootdir = self.myos.get(obj, type=ZNode)
         return self._rootdir
+    
+    @property
+    def property(self):
+        assert(self.os_type == 'zvol')
+        if self._property is None:
+            self._property = self.myos.get(2, type=Zap)
+        return self._property
 
 class SA(object):
     def __init__(self, znode, bonus_type):
@@ -383,6 +403,10 @@ class Zap(DNode):
             self.ls_fat(keys=names, entries=entries)
         
         if keys is None and entries is None:
+            if not names:
+                print('No entries in the zap object')
+                return
+            
             keylen = max([len(key) for key in names])
             for key in names:
                 if self.is_micro:

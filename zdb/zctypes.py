@@ -1007,3 +1007,15 @@ class ZfsAceHdr(CStruct):
             array.append(hdr)
         
         return array
+
+@EnumType
+class OST(object):
+    '''Imported from C-Enum: dmu_objset_type_t'''
+    TABLE = [
+        [ 'none',  'DMU_OST_NONE',  None ],
+        [ 'meta',  'DMU_OST_META',  None ],
+        [ 'zfs',   'DMU_OST_ZFS',   None ],
+        [ 'zvol',  'DMU_OST_ZVOL',  None ],
+        [ 'other', 'DMU_OST_OTHER', None ],
+        [ 'any',   'DMU_OST_ANY',   None ],
+    ]
