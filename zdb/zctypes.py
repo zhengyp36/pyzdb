@@ -485,6 +485,7 @@ class DNodePhys(CStruct):
             assert(blkptr.is_hole or blkptr.endian == self.endian)
 DNODE_PHYS_LEN = DNodePhys.sizeof()
 
+# TODO: Explore the internal workings of ZIL in more detail
 class ZilHdr(CStruct):
     STRUCT_NAME = 'zil_header_t'
     FIELDS = [
