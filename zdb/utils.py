@@ -81,6 +81,10 @@ def EnumType(TypeDef):
         def has(self, flag):
             return not not (self._value & flag)
         
+        @property
+        def alias_detail(self):
+            return self.detail(int(self))
+        
         @classmethod
         def detail(cls, flag):
             values = []
@@ -112,12 +116,15 @@ def EnumType(TypeDef):
             print('%d -> %d' % (start, last))
         
         @classmethod
-        def ls(cls, sort=False, fmt=str):
+        def _ls(cls, src, sort=False, fmt=None):
+            if fmt is None:
+                fmt = cls.FORMATTER[0]
+            
             if sort:
-                members = cls.MEMBERS_LIST[:]
+                members = src[:]
                 members.sort(key=lambda m : m._value)
             else:
-                members = cls.MEMBERS_LIST
+                members = src
             
             l1 = max([len(i._name) for i in members])
             l2 = max([len(i._enum_name) for i in members])
@@ -126,26 +133,62 @@ def EnumType(TypeDef):
                     l1, inst._name, l2, inst._enum_name, fmt(inst._value)
                 ))
         
+        @classmethod
+        def ls(cls, sort=False, fmt=None):
+            cls._ls(cls.MEMBERS_LIST, sort=sort, fmt=fmt)
+        
+        @classmethod
+        def ls_alias(cls, sort=False, fmt=None):
+            cls._ls(cls.ALIAS_LIST, sort=sort, fmt=fmt)
+        
         __doc__ = TypeDef.__doc__
-        MEMBERS_DICT,MEMBERS_LIST = {},[]
+        MEMBERS_DICT,MEMBERS_LIST,ALIAS_LIST = {},[],[]
     
-    v = -1
-    for entry in TypeDef.TABLE:
-        n,e,_v = entry[:3]
-        if _v is not None:
-            v = _v
-        else:
-            v += 1
-        
-        inst = TypeImplement(entry, v)
-        
-        TypeImplement.MEMBERS_LIST.append(inst)
-        TypeImplement.MEMBERS_DICT[n] = inst
-        TypeImplement.MEMBERS_DICT[e] = inst
-        TypeImplement.MEMBERS_DICT[v] = inst
-        
-        setattr(TypeImplement, n, inst)
-        setattr(TypeImplement, e, inst)
+    def init_table(cls, src, dst, getval):
+        v = -1
+        for entry in src:
+            n,e = entry[:2]
+            v = getval(cls,v,entry[2])
+            
+            inst = cls(entry, v)
+            
+            dst.append(inst)
+            cls.MEMBERS_DICT[n] = inst
+            cls.MEMBERS_DICT[e] = inst
+            cls.MEMBERS_DICT[v] = inst
+            
+            setattr(cls, n, inst)
+            setattr(cls, e, inst)
+    
+    def get_alias_value(cls,v,dfl):
+        v = 0
+        for n in dfl:
+            v |= int(cls.MEMBERS_DICT[n])
+        return v
+    
+    try:
+        setattr(TypeImplement, 'FORMATTER', TypeDef.FORMATTER)
+    except:
+        setattr(TypeImplement, 'FORMATTER', [str])
+    
+    
+    try:
+        alias_table = TypeDef.ALIAS_TABLE
+    except:
+        alias_table = []
+    
+    init_table(
+        TypeImplement,
+        TypeDef.TABLE,
+        TypeImplement.MEMBERS_LIST,
+        lambda cls,v,dfl : {True:v+1,False:dfl}[dfl is None]
+    )
+    init_table(
+        TypeImplement,
+        alias_table,
+        TypeImplement.ALIAS_LIST,
+        get_alias_value
+    )
     
     return TypeImplement
 

@@ -1030,3 +1030,147 @@ class SpaceMapPhys(CStruct):
         [ 'smp_pad',        5*8, 'u64.array', '--'  ],
         [ 'smp_histogram', 32*8, 'u64.array', '--'  ],
     ]
+
+@EnumType
+class ZioStage(object):
+    '''Imported from C-Enum: zio_stage'''
+    TABLE = [
+        [ 'open',             'ZIO_STAGE_OPEN',               1 <<  0 ], # RWFCI
+        [ 'read_bp_init',     'ZIO_STAGE_READ_BP_INIT',       1 <<  1 ], # R----
+        [ 'write_bp_init',    'ZIO_STAGE_WRITE_BP_INIT',      1 <<  2 ], # -W---
+        [ 'free_bp_init',     'ZIO_STAGE_FREE_BP_INIT',       1 <<  3 ], # --F--
+        [ 'issue_async',      'ZIO_STAGE_ISSUE_ASYNC',        1 <<  4 ], # RWF--
+        [ 'write_compress',   'ZIO_STAGE_WRITE_COMPRESS',     1 <<  5 ], # -W---
+        [ 'encrypt',          'ZIO_STAGE_ENCRYPT',            1 <<  6 ], # -W---
+        [ 'checksum_generate','ZIO_STAGE_CHECKSUM_GENERATE',  1 <<  7 ], # -W---
+        [ 'nop_write',        'ZIO_STAGE_NOP_WRITE',          1 <<  8 ], # -W---
+        [ 'ddt_read_start',   'ZIO_STAGE_DDT_READ_START',     1 <<  9 ], # R----
+        [ 'ddt_read_done',    'ZIO_STAGE_DDT_READ_DONE',      1 << 10 ], # R----
+        [ 'ddt_write',        'ZIO_STAGE_DDT_WRITE',          1 << 11 ], # -W---
+        [ 'ddt_free',         'ZIO_STAGE_DDT_FREE',           1 << 12 ], # --F--
+        [ 'gang_assemble',    'ZIO_STAGE_GANG_ASSEMBLE',      1 << 13 ], # RWFC-
+        [ 'gang_issue',       'ZIO_STAGE_GANG_ISSUE',         1 << 14 ], # RWFC-
+        [ 'dva_throttle',     'ZIO_STAGE_DVA_THROTTLE',       1 << 15 ], # -W---
+        [ 'dva_allocate',     'ZIO_STAGE_DVA_ALLOCATE',       1 << 16 ], # -W---
+        [ 'dva_free',         'ZIO_STAGE_DVA_FREE',           1 << 17 ], # --F--
+        [ 'dva_claim',        'ZIO_STAGE_DVA_CLAIM',          1 << 18 ], # ---C-
+        [ 'ready',            'ZIO_STAGE_READY',              1 << 19 ], # RWFCI
+        [ 'vdev_io_start',    'ZIO_STAGE_VDEV_IO_START',      1 << 20 ], # RW--I
+        [ 'vdev_io_done',     'ZIO_STAGE_VDEV_IO_DONE',       1 << 21 ], # RW--I
+        [ 'vdev_io_assess',   'ZIO_STAGE_VDEV_IO_ASSESS',     1 << 22 ], # RW--I
+        [ 'checksum_verify',  'ZIO_STAGE_CHECKSUM_VERIFY',    1 << 23 ], # R----
+        [ 'done',             'ZIO_STAGE_DONE',               1 << 24 ], # RWFCI
+    ]
+    
+    ALIAS_TABLE = [
+        [ 'interlock_stgs',
+          'ZIO_INTERLOCK_STAGES',         [ 'ZIO_STAGE_READY',
+                                            'ZIO_STAGE_DONE'                ]],
+        
+        [ 'interlock_ppln',
+          'ZIO_INTERLOCK_PIPELINE',       [ 'ZIO_INTERLOCK_STAGES'          ]],
+        
+        [ 'vdev_io_stgs',
+          'ZIO_VDEV_IO_STAGES',           [ 'ZIO_STAGE_VDEV_IO_START',
+                                            'ZIO_STAGE_VDEV_IO_DONE',
+                                            'ZIO_STAGE_VDEV_IO_ASSESS'      ]],
+        
+        [ 'vdev_child_ppln',
+          'ZIO_VDEV_CHILD_PIPELINE',      [ 'ZIO_VDEV_IO_STAGES',
+                                            'ZIO_STAGE_DONE'                ]],
+        
+        [ 'read_comm_stgs',
+          'ZIO_READ_COMMON_STAGES',       [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_VDEV_IO_STAGES',
+                                            'ZIO_STAGE_CHECKSUM_VERIFY'     ]],
+        
+        [ 'read_phys_ppln',
+          'ZIO_READ_PHYS_PIPELINE',       [ 'ZIO_READ_COMMON_STAGES'        ]],
+        
+        [ 'read_ppln',
+          'ZIO_READ_PIPELINE',            [ 'ZIO_READ_COMMON_STAGES',
+                                            'ZIO_STAGE_READ_BP_INIT'        ]],
+        
+        [ 'ddt_child_read_ppln',
+          'ZIO_DDT_CHILD_READ_PIPELINE',  [ 'ZIO_READ_COMMON_STAGES'        ]],
+        
+        [ 'ddt_read_ppln',
+          'ZIO_DDT_READ_PIPELINE',        [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_STAGE_READ_BP_INIT',
+                                            'ZIO_STAGE_DDT_READ_START',
+                                            'ZIO_STAGE_DDT_READ_DONE'       ]],
+        
+        [ 'write_comm_stgs',
+          'ZIO_WRITE_COMMON_STAGES',      [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_VDEV_IO_STAGES',
+                                            'ZIO_STAGE_ISSUE_ASYNC',
+                                            'ZIO_STAGE_CHECKSUM_GENERATE'   ]],
+        
+        [ 'write_phys_ppln',
+          'ZIO_WRITE_PHYS_PIPELINE',      [ 'ZIO_WRITE_COMMON_STAGES'       ]],
+        
+        [ 'rewrite_ppln',
+          'ZIO_REWRITE_PIPELINE',         [ 'ZIO_WRITE_COMMON_STAGES',
+                                            'ZIO_STAGE_WRITE_COMPRESS',
+                                            'ZIO_STAGE_ENCRYPT',
+                                            'ZIO_STAGE_WRITE_BP_INIT'       ]],
+        
+        [ 'write_ppln',
+          'ZIO_WRITE_PIPELINE',           [ 'ZIO_WRITE_COMMON_STAGES',
+                                            'ZIO_STAGE_WRITE_BP_INIT',
+                                            'ZIO_STAGE_WRITE_COMPRESS',
+                                            'ZIO_STAGE_ENCRYPT',
+                                            'ZIO_STAGE_DVA_THROTTLE',
+                                            'ZIO_STAGE_DVA_ALLOCATE'        ]],
+        
+        [ 'ddt_child_write_ppln',
+          'ZIO_DDT_CHILD_WRITE_PIPELINE', [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_VDEV_IO_STAGES',
+                                            'ZIO_STAGE_DVA_THROTTLE',
+                                            'ZIO_STAGE_DVA_ALLOCATE'        ]],
+        
+        [ 'ddt_write_ppln',
+          'ZIO_DDT_WRITE_PIPELINE',       [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_STAGE_WRITE_BP_INIT',
+                                            'ZIO_STAGE_ISSUE_ASYNC',
+                                            'ZIO_STAGE_WRITE_COMPRESS',
+                                            'ZIO_STAGE_ENCRYPT',
+                                            'ZIO_STAGE_CHECKSUM_GENERATE',
+                                            'ZIO_STAGE_DDT_WRITE'           ]],
+        
+        [ 'gang_stgs',
+          'ZIO_GANG_STAGES',              [ 'ZIO_STAGE_GANG_ASSEMBLE',
+                                            'ZIO_STAGE_GANG_ISSUE'          ]],
+        
+        [ 'free_ppln',
+          'ZIO_FREE_PIPELINE',            [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_STAGE_FREE_BP_INIT',
+                                            'ZIO_STAGE_DVA_FREE'            ]],
+        
+        [ 'ddt_free_ppln',
+          'ZIO_DDT_FREE_PIPELINE',        [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_STAGE_FREE_BP_INIT',
+                                            'ZIO_STAGE_ISSUE_ASYNC',
+                                            'ZIO_STAGE_DDT_FREE'            ]],
+        
+        [ 'claim_ppln',
+          'ZIO_CLAIM_PIPELINE',           [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_STAGE_DVA_CLAIM'           ]],
+        
+        [ 'ioctl_ppln',
+          'ZIO_IOCTL_PIPELINE',           [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_STAGE_VDEV_IO_START',
+                                            'ZIO_STAGE_VDEV_IO_ASSESS'      ]],
+        
+        [ 'trim_ppln',
+          'ZIO_TRIM_PIPELINE',            [ 'ZIO_INTERLOCK_STAGES',
+                                            'ZIO_STAGE_ISSUE_ASYNC',
+                                            'ZIO_VDEV_IO_STAGES'            ]],
+        
+        [ 'blocking_stgs',
+          'ZIO_BLOCKING_STAGES',          [ 'ZIO_STAGE_DVA_ALLOCATE',
+                                            'ZIO_STAGE_DVA_CLAIM',
+                                            'ZIO_STAGE_VDEV_IO_START'       ]],
+    ]
+    
+    FORMATTER = [lambda v : '0x' + hex(v)[2:].zfill(7)]
