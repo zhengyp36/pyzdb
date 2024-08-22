@@ -335,6 +335,9 @@ class CStruct(object):
     conv_unsigned = lambda bytes, endian : (
         Int.from_bytes(bytes, endian=endian,signed=False)
     )
+    conv_signed = lambda bytes, endian : (
+        Int.from_bytes(bytes, endian=endian,signed=True)
+    )
     conv_array_u8 = lambda bytes, endian : (
         Int.from_bytes_to_list(bytes, int_size=1, endian=endian, signed=False)
     )
@@ -354,6 +357,7 @@ class CStruct(object):
         'u16'       : conv_unsigned,
         'u32'       : conv_unsigned,
         'u64'       : conv_unsigned,
+        's64'       : conv_signed,
         'u8.array'  : conv_array_u8,
         'u16.array' : conv_array_u16,
         'u64.array' : conv_array_u64,

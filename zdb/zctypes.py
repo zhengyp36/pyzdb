@@ -1020,3 +1020,13 @@ class OST(object):
         [ 'other', 'DMU_OST_OTHER', None ],
         [ 'any',   'DMU_OST_ANY',   None ],
     ]
+
+class SpaceMapPhys(CStruct):
+    STRUCT_NAME = 'space_map_phys_t'
+    FIELDS = [
+        [ 'smp_object',       8, 'u64',       'str' ],
+        [ 'smp_length',       8, 'u64',       'str' ],
+        [ 'smp_alloc',        8, 's64',       'str' ],
+        [ 'smp_pad',        5*8, 'u64.array', '--'  ],
+        [ 'smp_histogram', 32*8, 'u64.array', '--'  ],
+    ]
