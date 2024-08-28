@@ -2,80 +2,66 @@
 #include <sys/btree.h>
 
 typedef struct {
-	PyObject_HEAD
 	const zfs_btree_t *	tree;
 	zfs_btree_index_t	index;
-} zdbcore_BTreeIndexObject;
+} btree_index_t;
+
+typedef struct {
+	PyObject *		obj;
+} btree_node_t;
+
+typedef struct {
+	zfs_btree_t		tree;
+	PyTypeObject *		elem_type;
+	PyObject *		elem_cmp;
+	int			cmp_error;
+	int			inited;
+} btree_t;
+
+typedef struct {
+	PyObject_HEAD
+	btree_index_t bti;
+} BTreeIndex;
+
+typedef struct {
+	PyObject_HEAD
+	btree_t bt;
+} BTree;
 
 static PyObject *
-zdbcore_BTreeIndex_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+BTreeIndex_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
-	zdbcore_BTreeIndexObject *self =
-	    (zdbcore_BTreeIndexObject*)type->tp_alloc(type, 0);
-	if (self) {
-		self->tree = NULL;
-		memset(&self->index, 0, sizeof(self->index));
-	}
+	BTreeIndex *self = (BTreeIndex*)type->tp_alloc(type, 0);
+	if (self)
+		memset(&self->bti, 0, sizeof(self->bti));
 	return ((PyObject*)self);
 }
 
 static int
-zdbcore_BTreeIndex_init(zdbcore_BTreeIndexObject *self,
-    PyObject *args, PyObject *kwargs)
+BTreeIndex_init(BTreeIndex *self, PyObject *args, PyObject *kwargs)
 {
 	return (0);
 }
 
 static void
-zdbcore_BTreeIndex_dealloc(zdbcore_BTreeIndexObject *self)
+BTreeIndex_dealloc(BTreeIndex *self)
 {
 	Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
 static PyObject *
-btree_index_clone(zdbcore_BTreeIndexObject *self, PyObject *noargs)
+BTreeIndex_copy(BTreeIndex *self, PyObject *noargs)
 {
-	zdbcore_BTreeIndexObject *other = (zdbcore_BTreeIndexObject*)
-	    PyObject_New(zdbcore_BTreeIndexObject, &zdbcore_BTreeIndexType);
-	if (other) {
-		other->tree = self->tree;
-		other->index = self->index;
-	}
+	BTreeIndex *other = PyObject_New(BTreeIndex, Py_TYPE(self));
+	if (other)
+		other->bti = self->bti;
 	return ((PyObject*)other);
 }
 
-static PyObject *
-btree_index_cmp(PyObject *_self, PyObject *_other, int op)
-{
-	zdbcore_BTreeIndexObject *self = (zdbcore_BTreeIndexObject*)_self;
-	if (!PyObject_TypeCheck(_other, Py_TYPE(self)) ||
-	    (op != Py_EQ && op != Py_NE)) {
-		Py_INCREF(Py_NotImplemented);
-		return Py_NotImplemented;
-	}
-
-	zdbcore_BTreeIndexObject *other = (zdbcore_BTreeIndexObject*)_other;
-	boolean_t equ = (self->tree == other->tree &&
-	    self->index.bti_node    == other->index.bti_node &&
-	    self->index.bti_offset  == other->index.bti_offset &&
-	    self->index.bti_before  == other->index.bti_before);
-
-	if ((op == Py_EQ && equ) || (op == Py_NE && !equ)) {
-		Py_RETURN_TRUE;
-	} else {
-		Py_RETURN_FALSE;
-	}
-}
-
-static PyMethodDef zdbcore_BTreeIndex_methods[] = {
+static PyMethodDef BTreeIndex_methods[] = {
 	{
-		"clone",
-		(PyCFunction)btree_index_clone,
-		METH_NOARGS,
-		"clone() -> A copy of the object"
-	}, {
 		"copy",
-		(PyCFunction)btree_index_clone,
+		(PyCFunction)BTreeIndex_copy,
 		METH_NOARGS,
 		"copy() -> A copy of the object"
 	}, {NULL}
@@ -85,13 +71,12 @@ PyTypeObject zdbcore_BTreeIndexType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "core.BTreeIndex",
 	.tp_doc = "BTreeIndex Object",
-	.tp_basicsize = sizeof(zdbcore_BTreeIndexObject),
+	.tp_basicsize = sizeof(BTreeIndex),
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-	.tp_init = (initproc)zdbcore_BTreeIndex_init,
-	.tp_new = zdbcore_BTreeIndex_new,
-	.tp_dealloc = (destructor)zdbcore_BTreeIndex_dealloc,
-	.tp_methods = zdbcore_BTreeIndex_methods,
-	.tp_richcompare = btree_index_cmp,
+	.tp_new = BTreeIndex_new,
+	.tp_init = (initproc)BTreeIndex_init,
+	.tp_dealloc = (destructor)BTreeIndex_dealloc,
+	.tp_methods = BTreeIndex_methods,
 };
 
 PyObject *
@@ -100,29 +85,19 @@ PyBTreeIndex_FromIndex(const zfs_btree_t *tree, const zfs_btree_index_t *index)
 	if (index->bti_node == NULL)
 		Py_RETURN_NONE;
 
-	zdbcore_BTreeIndexObject *self = (zdbcore_BTreeIndexObject*)
-	    PyObject_New(zdbcore_BTreeIndexObject, &zdbcore_BTreeIndexType);
+	BTreeIndex *self = PyObject_New(BTreeIndex, &zdbcore_BTreeIndexType);
 	if (self) {
-		self->tree = tree;
-		self->index = *index;
+		self->bti.tree = tree;
+		self->bti.index = *index;
 	}
 
 	return ((PyObject*)self);
 }
 
-typedef struct {
-	PyObject_HEAD
-	zfs_btree_t	tree;
-	PyTypeObject *	type;
-	PyObject *	cmp;
-	int		cmp_error;
-	int		tree_created;
-} zdbcore_BTreeObject;
-
-static long
+static inline long
 py_long_as(PyObject *result)
 {
-#ifdef IS_PY3K
+#ifdef IS_PY3K // Python-3.x
 	return (PyLong_AsLong(result));
 #else // Python-2.x
 	if (PyInt_Check(result))
@@ -136,57 +111,88 @@ py_long_as(PyObject *result)
 #endif
 }
 
-typedef struct {
-	PyObject *obj;
-} BTreeNode;
-
 static int
 btree_node_cmp(const void *_n1, const void *_n2, void *arg)
 {
-	zdbcore_BTreeObject *bto = (zdbcore_BTreeObject*)arg;
-	const BTreeNode *n1 = (const BTreeNode*)_n1;
-	const BTreeNode *n2 = (const BTreeNode*)_n2;
+	btree_t *bt = (btree_t*)arg;
+	const btree_node_t *n1 = (const btree_node_t*)_n1;
+	const btree_node_t *n2 = (const btree_node_t*)_n2;
 
-	PyObject *result = PyObject_CallFunctionObjArgs(
-	    bto->cmp, n1->obj, n2->obj, NULL);
-	if (result == NULL) {
-		bto->cmp_error = -1;
-		return (0);
+	PyObject *result = PyObject_CallFunctionObjArgs(bt->elem_cmp,
+	    n1->obj, n2->obj, NULL);
+	if (result) {
+		long cmp_result = py_long_as(result);
+		if (!PyErr_Occurred())
+			return ((int)cmp_result);
 	}
 
-	long cmp_result = py_long_as(result);
-	if (cmp_result == -1 && PyErr_Occurred())
-		bto->cmp_error = -1;
-	Py_DECREF(result);
-
-	return (bto->cmp_error ? 0 : (int)cmp_result);
+	bt->cmp_error = -1;
+	/* return 0 to stop traverse the btree */
+	return (0);
 }
 
 static void
-btree_clear(zdbcore_BTreeObject *self)
+btree_init(btree_t *bt, PyTypeObject *elem_type, PyObject *elem_cmp)
 {
-	BTreeNode *n;
+	Py_INCREF(elem_cmp);
+	Py_INCREF((PyObject*)elem_type);
+	bt->elem_cmp = elem_cmp;
+	bt->elem_type = elem_type;
+
+	zfs_btree_create(&bt->tree, btree_node_cmp, bt, sizeof(btree_node_t));
+
+	bt->cmp_error = 0;
+	bt->inited = 1;
+}
+
+static void
+btree_add(btree_t *bt, PyObject *elem, const btree_index_t *bti)
+{
+	btree_node_t n = { .obj = elem };
+	Py_INCREF(elem);
+
+	if (bti)
+		zfs_btree_add_idx(&bt->tree, &n, &bti->index);
+	else
+		zfs_btree_add(&bt->tree, &n);
+}
+
+static void
+btree_clear(btree_t *bt)
+{
+	btree_node_t *n;
 	zfs_btree_index_t *cookie = NULL;
-	while ((n = zfs_btree_destroy_nodes(&self->tree, &cookie)))
+	while ((n = zfs_btree_destroy_nodes(&bt->tree, &cookie)))
 		Py_DECREF(n->obj);
-	zfs_btree_destroy(&self->tree);
+}
+
+static void
+btree_destroy(btree_t *bt)
+{
+	if (bt->inited) {
+		btree_clear(bt);
+		zfs_btree_destroy(&bt->tree);
+
+		Py_DECREF(bt->elem_cmp);
+		Py_DECREF((PyObject*)bt->elem_type);
+		bt->elem_cmp = NULL;
+		bt->elem_type = NULL;
+
+		bt->inited = 0;
+	}
 }
 
 static PyObject *
-zdbcore_BTree_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
+BTree_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
-	zdbcore_BTreeObject *self =
-	    (zdbcore_BTreeObject*)type->tp_alloc(type, 0);
-	if (!self) {
-		memset(&self->tree, 0, sizeof(self->tree));
-		self->cmp = NULL;
-		self->cmp_error = 0;
-	}
+	BTree *self = (BTree*)type->tp_alloc(type, 0);
+	if (self)
+		memset(&self->bt, 0, sizeof(self->bt));
 	return ((PyObject*)self);
 }
 
 static int
-zdbcore_BTree_init(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
+BTree_init(BTree *self, PyObject *args, PyObject *kwargs)
 {
 	PyObject *type, *cmp;
 	if (!PyArg_ParseTuple(args, "OO", &type, &cmp))
@@ -203,121 +209,138 @@ zdbcore_BTree_init(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
 		return (-1);
 	}
 
-	Py_INCREF(type);
-	Py_INCREF(cmp);
-	self->type = (PyTypeObject*)type;
-	self->cmp = cmp;
-	self->tree_created = 1;
-	zfs_btree_create(&self->tree, btree_node_cmp, self, sizeof(BTreeNode));
-
+	btree_init(&self->bt, (PyTypeObject*)type, cmp);
 	return (0);
 }
 
 static void
-zdbcore_BTree_dealloc(zdbcore_BTreeObject *self)
+BTree_dealloc(BTree *self)
 {
-	if (self->type) {
-		Py_DECREF((PyObject*)self->type);
-		self->type = NULL;
-	}
-
-	if (self->cmp) {
-		Py_DECREF(self->cmp);
-		self->cmp = NULL;
-	}
-
-	if (self->tree_created) {
-		btree_clear(self);
-		self->tree_created = 0;
-	}
-
+	btree_destroy(&self->bt);
 	Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyObject *
-zdbcore_BTree_add(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
+static inline boolean_t
+is_elem_type(btree_t *bt, PyObject *elem)
 {
-	PyObject *elem = NULL, *_where = NULL;
-	char *kwlist[] = { "element", "where", NULL };
-	if (!PyArg_ParseTupleAndKeywords(
-	    args, kwargs, "O|O", kwlist, &elem, &_where))
-		return (NULL);
-
-	if (!PyObject_TypeCheck(elem, self->type)) {
-		PyErr_Format(PyExc_TypeError,
-		    "Expected type '%s' but received type '%s'",
-		    self->type->tp_name, Py_TYPE(elem)->tp_name);
-		return (NULL);
-	}
-
-	if (_where && PyObject_TypeCheck(_where, &zdbcore_BTreeIndexType)) {
-		PyErr_Format(PyExc_TypeError,
-		    "Expected type '%s' but received type '%s'",
-		    zdbcore_BTreeIndexType.tp_name, Py_TYPE(_where)->tp_name);
-		return (NULL);
-	}
-
-	zdbcore_BTreeIndexObject *where = (zdbcore_BTreeIndexObject*)_where;
-	if (where && where->tree != &self->tree) {
-		PyErr_SetString(PyExc_ValueError,
-		    "The argument 'where' does not belong to this tree.");
-		return (NULL);
-	}
-
-	BTreeNode node = { .obj = elem };
-	if (where)
-		zfs_btree_add_idx(&self->tree, &node, &where->index);
-	else
-		zfs_btree_add(&self->tree, &node);
-
-	Py_RETURN_NONE;
+	return (!!PyObject_TypeCheck(elem, bt->elem_type));
 }
 
-static PyObject *
-zdbcore_BTree_remove(zdbcore_BTreeObject *self, PyObject *args)
+static inline int
+btree_check_elem(btree_t *bt, PyObject *elem)
 {
-	PyObject *arg;
-	if (!PyArg_ParseTuple(args, "O", &arg))
-		return (NULL);
-
-	zdbcore_BTreeIndexObject *where = NULL;
-	if (PyObject_TypeCheck(arg, &zdbcore_BTreeIndexType)) {
-		zdbcore_BTreeIndexObject *tmp = (zdbcore_BTreeIndexObject*)arg;
-		if (tmp->tree == &self->tree)
-			where = tmp;
-	}
-
-	PyObject *elem = NULL;
-	if (!where && PyObject_TypeCheck(arg, self->type))
-		elem = arg;
-
-	if (where) {
-		zfs_btree_remove_idx(&self->tree, &where->index);
-		Py_RETURN_NONE;
-	} else if (elem) {
-		BTreeNode n = { .obj = elem };
-		zfs_btree_remove(&self->tree, &n);
-		Py_RETURN_NONE;
+	if (is_elem_type(bt, elem)) {
+		return (0);
 	} else {
 		PyErr_Format(PyExc_TypeError,
-		    "Expected type '%s' or '%s' but not '%s'",
-		    zdbcore_BTreeIndexType.tp_name,
-		    self->type->tp_name,
-		    Py_TYPE(arg)->tp_name);
-		return (NULL);
+		    "Expected type '%s' but received type '%s'",
+		    bt->elem_type->tp_name, Py_TYPE(elem)->tp_name);
+		return (-1);
 	}
 }
 
-static PyObject *
-zdbcore_BTree_clear(zdbcore_BTreeObject *self, PyObject *noargs)
+static inline boolean_t
+is_index_type(PyObject *where)
 {
-	btree_clear(self);
+	return (!!PyObject_TypeCheck(where, &zdbcore_BTreeIndexType));
+}
+
+static inline int
+btree_check_index(btree_t *bt, PyObject *where)
+{
+	if (!is_index_type(where)) {
+		PyErr_Format(PyExc_TypeError,
+		    "Expected type '%s' but received type '%s'",
+		    zdbcore_BTreeIndexType.tp_name, Py_TYPE(where)->tp_name);
+		return (-1);
+	}
+
+	BTreeIndex *index = (BTreeIndex*)where;
+	if (index->bti.tree != &bt->tree) {
+		PyErr_SetString(PyExc_ValueError,
+		    "The argument 'where' does not belong to this tree.");
+		return (-1);
+	}
+
+	return (0);
+}
+
+static PyObject *
+BTree_add(BTree *self, PyObject *args, PyObject *kwargs)
+{
+	PyObject *elem = NULL, *where = NULL;
+	char *kwlist[] = { "element", "where", NULL };
+	if (!PyArg_ParseTupleAndKeywords(
+	    args, kwargs, "O|O", kwlist, &elem, &where))
+		return (NULL);
+
+	if (btree_check_elem(&self->bt, elem) ||
+	    (where && btree_check_index(&self->bt, where)))
+		return (NULL);
+
+	BTreeIndex *index = (BTreeIndex*)where;
+	btree_add(&self->bt, elem, index ? &index->bti : NULL);
 	Py_RETURN_NONE;
 }
 
 static PyObject *
-btree_return_element(zdbcore_BTreeObject *self,
-    PyObject *elem, zfs_btree_index_t *index)
+BTree_remove(BTree *self, PyObject *args, PyObject *kwargs)
+{
+	PyObject *elem = NULL, *where = NULL;
+	char *kwlist[] = { "element", "where", NULL };
+	if (!PyArg_ParseTupleAndKeywords(
+	    args, kwargs, "|OO", kwlist, &elem, &where))
+		return (NULL);
+
+	if (!elem && !where) {
+		PyObject *arg;
+		if (!PyArg_ParseTuple(args, "O", &arg))
+			return (NULL);
+
+		if (is_elem_type(&self->bt, arg)) {
+			elem = arg;
+		} else if (is_index_type(arg)) {
+			where = arg;
+		} else {
+			PyErr_Format(PyExc_TypeError,
+			    "Expected type '%s' or '%s' but not '%s'",
+			    self->bt.elem_type->tp_name,
+			    zdbcore_BTreeIndexType.tp_name,
+			    Py_TYPE(arg)->tp_name);
+			return (NULL);
+		}
+	}
+
+	if (elem && where) {
+		PyErr_Format(PyExc_ValueError,
+		    "It's wrong that element and where are both given.");
+		return (NULL);
+	}
+
+	if ((elem && btree_check_elem(&self->bt, elem)) ||
+	    (where && btree_check_index(&self->bt, where)))
+		return (NULL);
+
+	if (elem) {
+		btree_node_t n = { .obj = elem };
+		zfs_btree_remove(&self->bt.tree, &n);
+	} else {
+		zfs_btree_index_t *index = &((BTreeIndex*)where)->bti.index;
+		zfs_btree_remove_idx(&self->bt.tree, index);
+	}
+
+	Py_RETURN_NONE;
+}
+
+static PyObject *
+BTree_clear(BTree *self, PyObject *noargs)
+{
+	btree_clear(&self->bt);
+	Py_RETURN_NONE;
+}
+
+static PyObject *
+btree_return_element(btree_t *bt, PyObject *elem, zfs_btree_index_t *index)
 {
 	if (!index) {
 		Py_INCREF(elem);
@@ -328,7 +351,7 @@ btree_return_element(zdbcore_BTreeObject *self,
 	if (!tuple)
 		return (NULL);
 
-	PyObject *obj_idx = PyBTreeIndex_FromIndex(&self->tree, index);
+	PyObject *obj_idx = PyBTreeIndex_FromIndex(&bt->tree, index);
 	if (!obj_idx) {
 		Py_DECREF(tuple);
 		return (NULL);
@@ -342,7 +365,7 @@ btree_return_element(zdbcore_BTreeObject *self,
 }
 
 static PyObject *
-zdbcore_BTree_find(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
+BTree_find(BTree *self, PyObject *args, PyObject *kwargs)
 {
 	PyObject *_search = NULL, *return_index = NULL;
 
@@ -351,12 +374,8 @@ zdbcore_BTree_find(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
 	    args, kwargs, "O|O", kwlist, &_search, &return_index))
 		return (NULL);
 
-	if (!PyObject_TypeCheck(_search, self->type)) {
-		PyErr_Format(PyExc_TypeError,
-		    "Expected type '%s' but received type '%s'",
-		    self->type->tp_name, Py_TYPE(_search)->tp_name);
+	if (btree_check_elem(&self->bt, _search))
 		return (NULL);
-	}
 
 	zfs_btree_index_t _index, *index = NULL;
 	if (return_index && PyObject_IsTrue(return_index)) {
@@ -364,14 +383,23 @@ zdbcore_BTree_find(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
 		memset(index, 0, sizeof(*index));
 	}
 
-	BTreeNode search = { .obj = _search };
-	BTreeNode *n = zfs_btree_find(&self->tree, &search, index);
-	return (btree_return_element(self, n ? n->obj : Py_None, index));
+	btree_node_t search = { .obj = _search };
+	btree_node_t *n = zfs_btree_find(&self->bt.tree, &search, index);
+	return (btree_return_element(&self->bt, n ? n->obj : Py_None, index));
 }
 
+enum {
+	GET_FIRST,
+	GET_LAST,
+
+	GET_PREV,
+	GET_CURR,
+	GET_NEXT,
+};
+
 static PyObject *
-btree_return_first_or_last(zdbcore_BTreeObject *self,
-    PyObject *args, PyObject *kwargs, boolean_t return_first)
+btree_return_first_or_last(btree_t *bt,
+    PyObject *args, PyObject *kwargs, int which)
 {
 	PyObject *return_index = NULL;
 
@@ -386,46 +414,37 @@ btree_return_first_or_last(zdbcore_BTreeObject *self,
 		memset(index, 0, sizeof(*index));
 	}
 
-	BTreeNode *n = return_first ?
-	    zfs_btree_first(&self->tree, index) :
-	    zfs_btree_last(&self->tree, index);
-	return (btree_return_element(self, n ? n->obj : Py_None, index));
+	btree_node_t *n = (which == GET_FIRST) ?
+	    zfs_btree_first(&bt->tree, index) :
+	    zfs_btree_last(&bt->tree, index);
+	return (btree_return_element(bt, n ? n->obj : Py_None, index));
 }
 
-enum {
-	GET_PREV,
-	GET_CURR,
-	GET_NEXT,
-};
-
 static PyObject *
-btree_get_value(zdbcore_BTreeObject *self, PyObject *args, int which)
+btree_get_value(btree_t *bt, PyObject *args, int which)
 {
-	PyObject *_where = NULL;
-	if (!PyArg_ParseTuple(args, "O", &_where))
+	PyObject *where = NULL;
+	if (!PyArg_ParseTuple(args, "O", &where))
 		return (NULL);
 
-	if (!PyObject_TypeCheck(_where, &zdbcore_BTreeIndexType)) {
-		PyErr_Format(PyExc_TypeError, "Expected type '%s' but not '%s'",
-		    zdbcore_BTreeIndexType.tp_name,
-		    Py_TYPE(_where)->tp_name);
+	if (btree_check_index(bt, where))
 		return (NULL);
-	}
 
-	zdbcore_BTreeIndexObject *where = (zdbcore_BTreeIndexObject*)_where;
-	BTreeNode *n;
+	zfs_btree_index_t *index = &((BTreeIndex*)where)->bti.index;
+	btree_node_t *n;
+
 	switch (which) {
 	case GET_NEXT:
-		n = zfs_btree_next(&self->tree, &where->index, &where->index);
+		n = zfs_btree_next(&bt->tree, index, index);
 		break;
 
 	case GET_PREV:
-		n = zfs_btree_prev(&self->tree, &where->index, &where->index);
+		n = zfs_btree_prev(&bt->tree, index, index);
 		break;
 
 	case GET_CURR:
 	default:
-		n = zfs_btree_get(&self->tree, &where->index);
+		n = zfs_btree_get(&bt->tree, index);
 		break;
 	}
 
@@ -438,114 +457,187 @@ btree_get_value(zdbcore_BTreeObject *self, PyObject *args, int which)
 }
 
 static PyObject *
-zdbcore_BTree_first(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
+BTree_first(BTree *self, PyObject *args, PyObject *kwargs)
 {
-	return (btree_return_first_or_last(self,
-	    args, kwargs, /*return_first=*/1));
+	return (btree_return_first_or_last(&self->bt, args, kwargs, GET_FIRST));
 }
 
 static PyObject *
-zdbcore_BTree_last(zdbcore_BTreeObject *self, PyObject *args, PyObject *kwargs)
+BTree_last(BTree *self, PyObject *args, PyObject *kwargs)
 {
-	return (btree_return_first_or_last(self,
-	    args, kwargs, /*return_first=*/0));
+	return (btree_return_first_or_last(&self->bt, args, kwargs, GET_LAST));
 }
 
 static PyObject *
-zdbcore_BTree_curr(zdbcore_BTreeObject *self, PyObject *args)
+BTree_curr(BTree *self, PyObject *args)
 {
-	return (btree_get_value(self, args, GET_CURR));
+	return (btree_get_value(&self->bt, args, GET_CURR));
 }
 
 static PyObject *
-zdbcore_BTree_next(zdbcore_BTreeObject *self, PyObject *args)
+BTree_next(BTree *self, PyObject *args)
 {
-	return (btree_get_value(self, args, GET_NEXT));
+	return (btree_get_value(&self->bt, args, GET_NEXT));
 }
 
 static PyObject *
-zdbcore_BTree_prev(zdbcore_BTreeObject *self, PyObject *args)
+BTree_prev(BTree *self, PyObject *args)
 {
-	return (btree_get_value(self, args, GET_PREV));
+	return (btree_get_value(&self->bt, args, GET_PREV));
 }
 
 static unsigned long
 btree_size(PyObject *_self)
 {
-	zdbcore_BTreeObject *self = (zdbcore_BTreeObject*)_self;
-	return (zfs_btree_numnodes(&self->tree));
+	BTree *self = (BTree*)_self;
+	return (zfs_btree_numnodes(&self->bt.tree));
+}
+
+static inline PyObject *
+get_method(PyObject *obj, const char *name)
+{
+	PyObject *method = PyObject_GetAttrString(obj, name);
+	if (method && PyCallable_Check(method)) {
+		return (method);
+	} else {
+		Py_XDECREF(method);
+		return (NULL);
+	}
+}
+
+#define call_method(method, ...) \
+	PyObject_CallFunctionObjArgs(method, ##__VA_ARGS__, NULL)
+
+static void
+pop_objs(PyObject *list, int cnt)
+{
+	PyObject *pop = get_method(list, "pop");
+	if (!pop)
+		return;
+
+	while (cnt-- > 0) {
+		PyObject *obj = call_method(pop);
+		if (obj)
+			Py_DECREF(obj);
+	}
+
+	Py_DECREF(pop);
+}
+
+static int
+append_objs(PyObject *list, zfs_btree_t *tree)
+{
+	PyObject *append = get_method(list, "append");
+	if (!append)
+		return (-1);
+
+	btree_node_t *n;
+	zfs_btree_index_t idx;
+	int cnt = 0, err = 0;
+
+	for (n = zfs_btree_first(tree, &idx); n;
+	    n = zfs_btree_next(tree, &idx, &idx)) {
+		PyObject *r = call_method(append, n->obj);
+		if (r) {
+			Py_DECREF(r);
+			Py_INCREF(n->obj);
+			cnt++;
+		} else {
+			err = -1;
+			break;
+		}
+	}
+	Py_DECREF(append);
+
+	if (!err)
+		return (0);
+
+	if (cnt > 0)
+		pop_objs(list, cnt);
+
+	return (-1);
 }
 
 static PyObject *
-zdbcore_BTree_size(PyObject *self, void *closure)
+BTree_tolist(BTree *self, PyObject *noargs)
+{
+	PyObject *list = PyList_New(0);
+	if (!list)
+		return (NULL);
+
+	if (append_objs(list, &self->bt.tree)) {
+		Py_DECREF(list);
+		return (NULL);
+	}
+
+	return (list);
+}
+
+static PyObject *
+BTree_size(PyObject *self, void *closure)
 {
 	return (PY_INT_FROM(btree_size(self)));
 }
 
-static PyGetSetDef zdbcore_BTree_getseters[] = {
+static PyGetSetDef BTree_getseters[] = {
 	PROPERTY_RDONLY(
 	    "size",
 	    "number of btree's nodes",
-	    zdbcore_BTree_size),
+	    BTree_size),
 	PROPERTY_NULL
 };
 
-static Py_ssize_t
-zdbcore_BTree_len(PyObject *self)
-{
-	return ((Py_ssize_t)btree_size(self));
-}
-
-static PySequenceMethods zdbcore_BTree_as_sequence = {
-	.sq_length = zdbcore_BTree_len,
-};
-
-static PyMethodDef zdbcore_BTree_methods[] = {
+static PyMethodDef BTree_methods[] = {
 	{
 		"add",
-		(PyCFunction)zdbcore_BTree_add,
+		(PyCFunction)BTree_add,
 		METH_VARARGS,
 		"add(element[,where]) -> None"
 	}, {
 		"remove",
-		(PyCFunction)zdbcore_BTree_remove,
+		(PyCFunction)BTree_remove,
 		METH_VARARGS,
 		"remove(element or where) -> None"
 	}, {
 		"clear",
-		(PyCFunction)zdbcore_BTree_clear,
+		(PyCFunction)BTree_clear,
 		METH_NOARGS,
 		"clear() -> None"
 	}, {
 		"find",
-		(PyCFunction)zdbcore_BTree_find,
+		(PyCFunction)BTree_find,
 		METH_VARARGS,
 		"find(search[,return_where=False]) -> element[,where]"
 	}, {
 		"first",
-		(PyCFunction)zdbcore_BTree_first,
+		(PyCFunction)BTree_first,
 		METH_VARARGS,
 		"first([return_where=False]) -> element[,where]"
 	}, {
 		"last",
-		(PyCFunction)zdbcore_BTree_last,
+		(PyCFunction)BTree_last,
 		METH_VARARGS,
 		"last([return_where=False]) -> element[,where]"
 	}, {
 		"get",
-		(PyCFunction)zdbcore_BTree_curr,
+		(PyCFunction)BTree_curr,
 		METH_VARARGS,
 		"get(where) -> element"
 	}, {
 		"next",
-		(PyCFunction)zdbcore_BTree_next,
+		(PyCFunction)BTree_next,
 		METH_VARARGS,
 		"next(where) -> element"
 	}, {
 		"prev",
-		(PyCFunction)zdbcore_BTree_prev,
+		(PyCFunction)BTree_prev,
 		METH_VARARGS,
 		"prev(where) -> element"
+	}, {
+		"tolist",
+		(PyCFunction)BTree_tolist,
+		METH_VARARGS,
+		"tolist() -> [element,...]"
 	}, {NULL}
 };
 
@@ -553,14 +645,13 @@ PyTypeObject zdbcore_BTreeType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "core.BTree",
 	.tp_doc = "BTree Object",
-	.tp_basicsize = sizeof(zdbcore_BTreeObject),
+	.tp_basicsize = sizeof(BTree),
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-	.tp_init = (initproc)zdbcore_BTree_init,
-	.tp_new = zdbcore_BTree_new,
-	.tp_dealloc = (destructor)zdbcore_BTree_dealloc,
-	.tp_methods = zdbcore_BTree_methods,
-	.tp_getset = zdbcore_BTree_getseters,
-	.tp_as_sequence = &zdbcore_BTree_as_sequence,
+	.tp_init = (initproc)BTree_init,
+	.tp_new = BTree_new,
+	.tp_dealloc = (destructor)BTree_dealloc,
+	.tp_methods = BTree_methods,
+	.tp_getset = BTree_getseters,
 };
 
 void

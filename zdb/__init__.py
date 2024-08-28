@@ -11,4 +11,4 @@ from .spa           import *
 from .dmu           import *
 from .raidz         import *
 from .zap_name_tbl  import *
-from .btree         import *
+from .core          import BTree
