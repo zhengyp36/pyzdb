@@ -11,25 +11,41 @@ typedef struct {
 #define TYPE_PAIR_NULL TYPE_PAIR_ENT(NULL, NULL)
 
 static type_pair_t type_table[] = {
-	TYPE_PAIR_ENT("Disk", &zdbcore_DiskType),
+	TYPE_PAIR_ENT("Disk",       &zdbcore_DiskType),
+	TYPE_PAIR_ENT("BTree",      &zdbcore_BTreeType),
+	TYPE_PAIR_ENT("BTreeIndex", &zdbcore_BTreeIndexType),
 	TYPE_PAIR_NULL
 };
+
+static void
+submod_init(void)
+{
+	zdbcore_compress_init();
+	zdbcore_btree_init();
+}
+
+static void
+submod_fini(void)
+{
+	zdbcore_btree_fini();
+	zdbcore_compress_fini();
+}
 
 static PyObject *
 zdbcore_init_impl(void)
 {
-	zdbcore_compress_init();
+	submod_init();
 
 	for (type_pair_t *tp = type_table; tp->name; tp++) {
 		if (PyType_Ready(tp->tp) < 0) {
-			zdbcore_compress_fini();
+			submod_fini();
 			return (NULL);
 		}
 	}
 
 	PyObject *m = create_module_impl();
 	if (!m) {
-		zdbcore_compress_fini();
+		submod_fini();
 		return (NULL);
 	}
 

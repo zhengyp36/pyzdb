@@ -35,6 +35,11 @@ class Spa(object):
         self.rdd = self.mos.get(obj, type=DslDir)
         self.rds = self.rdd.get_ds(self.rdd.phys.dd_head_dataset_obj)
         
+        config_obj = self.rdir.lookup('config', fmt='num')[0]
+        config_dn = self.mos.get(config_obj)
+        config_len = Int.from_bytes(config_dn.dnphys.dn_bonus)
+        self.config = NVList.from_bytes(config_dn.read(0,config_len))
+        
         # TODO: ...
         
         self.opened = True

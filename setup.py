@@ -30,6 +30,10 @@ setup(
                 'src/compress/lz4_zfs.c',
                 'src/compress/zio_compress.c',
                 'src/core_compress.c',
+                
+                # core.btree
+                'src/btree.c',
+                'src/core_btree.c',
             ]),
         )
     ]

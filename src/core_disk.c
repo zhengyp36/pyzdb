@@ -10,7 +10,7 @@ static PyObject *
 zdbcore_Disk_new(PyTypeObject *type, PyObject *args, PyObject *kwargs)
 {
 	zdbcore_DiskObject *self = (zdbcore_DiskObject*)type->tp_alloc(type, 0);
-	if (!self)
+	if (self)
 		disk_init(&self->disk);
 	return ((PyObject*)self);
 }

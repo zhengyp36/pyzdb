@@ -19,10 +19,15 @@
 #define PROPERTY_NULL {NULL}
 
 extern PyTypeObject zdbcore_DiskType;
+extern PyTypeObject zdbcore_BTreeType;
+extern PyTypeObject zdbcore_BTreeIndexType;
 
 void zdbcore_compress_init(void);
 void zdbcore_compress_fini(void);
 PyObject *zdbcore_compress(PyObject *self, PyObject *args);
 PyObject *zdbcore_decompress(PyObject *self, PyObject *args);
+
+void zdbcore_btree_init(void);
+void zdbcore_btree_fini(void);
 
 #endif // _PYTHON_INTERNAL_H

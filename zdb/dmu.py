@@ -383,6 +383,11 @@ class ZNode(DNode):
             self.items[name] = self.os.get(objid, type=type(self))
         return self.items[name]
 
+class SpaceMap(DNode):
+    def __init__(self, os, id, phys):
+        super(type(self),self).__init__(os=os, id=id, phys=phys)
+        self.phys = SpaceMapPhys(self.dnphys.dn_bonus)
+
 class Zap(DNode):
     def __init__(self, os, id, phys):
         super(type(self),self).__init__(os=os, id=id, phys=phys)

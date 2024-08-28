@@ -31,4 +31,6 @@ static inline void __compile_check_NBBY(void) { BUILD_BUG_ON(NBBY != 8); }
 #define	BSWAP_16(x)	((BSWAP_8(x) << 8) | BSWAP_8((x) >> 8))
 #define	BSWAP_32(x)	((BSWAP_16(x) << 16) | BSWAP_16((x) >> 16))
 
+#define	ZFS_MODULE_PARAM(scope_prefix, name_prefix, name, type, perm, desc)
+
 #endif // __SYS_ZFS_CONTEXT_H
