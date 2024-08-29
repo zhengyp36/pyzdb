@@ -589,52 +589,52 @@ static PyGetSetDef BTree_getseters[] = {
 
 static PyMethodDef BTree_methods[] = {
 	{
-		"add",
+		"_add",
 		(PyCFunction)BTree_add,
-		METH_VARARGS,
+		METH_VARARGS | METH_KEYWORDS,
 		"add(element[,where]) -> None"
 	}, {
-		"remove",
+		"_remove",
 		(PyCFunction)BTree_remove,
-		METH_VARARGS,
+		METH_VARARGS | METH_KEYWORDS,
 		"remove(element or where) -> None"
 	}, {
-		"clear",
+		"_clear",
 		(PyCFunction)BTree_clear,
-		METH_NOARGS,
+		METH_NOARGS | METH_KEYWORDS,
 		"clear() -> None"
 	}, {
-		"find",
+		"_find",
 		(PyCFunction)BTree_find,
-		METH_VARARGS,
+		METH_VARARGS | METH_KEYWORDS,
 		"find(search[,return_where=False]) -> element[,where]"
 	}, {
-		"first",
+		"_first",
 		(PyCFunction)BTree_first,
-		METH_VARARGS,
+		METH_VARARGS | METH_KEYWORDS,
 		"first([return_where=False]) -> element[,where]"
 	}, {
-		"last",
+		"_last",
 		(PyCFunction)BTree_last,
-		METH_VARARGS,
+		METH_VARARGS | METH_KEYWORDS,
 		"last([return_where=False]) -> element[,where]"
 	}, {
-		"get",
+		"_get",
 		(PyCFunction)BTree_curr,
 		METH_VARARGS,
 		"get(where) -> element"
 	}, {
-		"next",
+		"_next",
 		(PyCFunction)BTree_next,
 		METH_VARARGS,
 		"next(where) -> element"
 	}, {
-		"prev",
+		"_prev",
 		(PyCFunction)BTree_prev,
 		METH_VARARGS,
 		"prev(where) -> element"
 	}, {
-		"tolist",
+		"_tolist",
 		(PyCFunction)BTree_tolist,
 		METH_VARARGS,
 		"tolist() -> [element,...]"
@@ -643,8 +643,8 @@ static PyMethodDef BTree_methods[] = {
 
 PyTypeObject zdbcore_BTreeType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	.tp_name = "core.BTree",
-	.tp_doc = "BTree Object",
+	.tp_name = "core.CBTree",
+	.tp_doc = "BTree Object Implementation",
 	.tp_basicsize = sizeof(BTree),
 	.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 	.tp_init = (initproc)BTree_init,

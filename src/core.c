@@ -12,7 +12,7 @@ typedef struct {
 
 static type_pair_t type_table[] = {
 	TYPE_PAIR_ENT("Disk",       &zdbcore_DiskType),
-	TYPE_PAIR_ENT("BTree",      &zdbcore_BTreeType),
+	TYPE_PAIR_ENT("CBTree",     &zdbcore_BTreeType),
 	TYPE_PAIR_ENT("BTreeIndex", &zdbcore_BTreeIndexType),
 	TYPE_PAIR_NULL
 };

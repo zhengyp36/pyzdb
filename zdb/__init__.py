@@ -12,3 +12,5 @@ from .dmu           import *
 from .raidz         import *
 from .zap_name_tbl  import *
 from .core          import BTree
+from .metaslab      import *
+from .sm_decode     import *
