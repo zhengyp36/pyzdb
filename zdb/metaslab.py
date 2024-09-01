@@ -73,7 +73,12 @@ class RangeTree(object):
         out.write('UsableRangeSegs:\n')
         for r in self.btree.tolist():
             out.write(repr(r) + '\n')
+        out.write('Total-Free-Size: %u\n' % self.free_size)
         out.flush()
+    
+    @property
+    def free_size(self):
+        return sum([r.length for r in self.btree.tolist()])
     
     def _add(self, element):
         tree = self.btree
@@ -119,8 +124,9 @@ class Metaslab(object):
         }
         
         nvl = spa.config['vdev_tree']['children'][tvd_id]
-        self._info['start' ] = ms_id << nvl['metaslab_shift']
-        self._info['length'] = 1 << nvl['metaslab_shift']
+        self._info['start' ] = ms_id << (nvl['metaslab_shift'] - nvl['ashift'])
+        self._info['ashift'] = nvl['ashift']
+        self._info['length'] = 1 << (nvl['metaslab_shift'] - nvl['ashift'])
         
         msarr = spa.mos.get(nvl['metaslab_array'])
         self._info['smobj' ] = Int.from_bytes(msarr.read(ms_id*8, 8))
@@ -148,6 +154,15 @@ class Metaslab(object):
         self.replayed_txg = 0
     
     def replay(self, smobj, out=sys.stdout):
+        if smobj == self._info['smobj']:
+            if smobj == 0:
+                print('smobj=0 is invalid')
+                return False
+            myRange = RangeSeg(0, self._info['length'])
+        else:
+            assert(smobj in self._info['logsm'])
+            myRange = RangeSeg(self._info['start'], self._info['length'])
+        
         decoder = self.open_sm(smobj)['decoder']
         
         curr_txg,repeat_txg = -1,-1
@@ -174,21 +189,27 @@ class Metaslab(object):
                     continue
             
             if 'offset' in sm:
-                rs = RangeSeg(sm['offset'], sm['run_len'])
+                if not myRange.contains(sm['offset']):
+                    continue
+                assert(sm['offset'] + sm['run_len'] < myRange.end)
+                
+                rs = RangeSeg(sm['offset']-myRange.offset, sm['run_len'])
                 op = {0:self.rt.alloc, 1:self.rt.free}[sm['maptype']]
                 op(rs)
         
         if curr_txg > self.replayed_txg:
             self.replayed_txg = curr_txg
         
-        decoder.dump_sm_array(sms, out=out)
-        self.rt.dump(out=out)
+        if out:
+            decoder.dump_sm_array(sms, out=out)
+            self.rt.dump(out=out)
         
         return not not sms
     
     def replay_done(self, smobj, out=sys.stdout):
         while self.replay(smobj, out=out):
-            out.write('\n')
+            if out:
+                out.write('\n')
     
     def open_sm(self, smobj):
         if smobj not in self.replay_table:
@@ -202,7 +223,11 @@ class Metaslab(object):
         return self.replay_table[smobj]
     
     def dump(self):
-        keyorder = ['tvd_id', 'ms_id', 'start', 'length', 'smobj', 'logsm']
+        keyorder = [
+            'tvd_id', 'ms_id',
+            'start', 'ashift', 'length',
+            'smobj', 'logsm'
+        ]
         keylen,output = max([len(k) for k in self._info]),[]
         
         for k in keyorder:
