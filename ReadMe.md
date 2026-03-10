@@ -95,8 +95,15 @@ This reads the file **directly from disk**, not via the OS.
 
 ## Documentation
 
-* `docs/demo.md` — Step-by-step disk-level walkthrough
-* `docs/internals.md` — Internal architecture and data model
+### English
+
+* `docs/en/demo.md` — Step-by-step disk-level walkthrough
+* `docs/en/internals.md` — Internal architecture and data model
+
+### Chinese
+
+* `docs/zh/pyzdb 演示.pdf` — 《pyzdb 工具演示》
+* `docs/zh/pyzdb 技术说明书.pdf` — 《pyzdb 技术说明书》
 
 ---
 
