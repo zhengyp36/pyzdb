@@ -1,3 +1,9 @@
+/*
+ * Some implementatios in this file are derived from OpenZFS source code.
+ * OpenZFS is licensed under the Common Development and Distribution
+ * License (CDDL). See https://github.com/openzfs/zfs
+ */
+
 #include <sys/zfs_context.h>
 #include <sys/zio_compress.h>
 

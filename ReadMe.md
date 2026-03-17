@@ -131,3 +131,11 @@ It does not focus on:
 ZFS documentation and code explain parts of the system, but it is difficult to form a **complete mental model**.
 
 `pyzdb` was built to bridge that gap by making every on-disk structure directly visible and inspectable.
+
+---
+
+## License
+
+pyzdb is MIT licensed. See [LICENSE](LICENSE).
+
+Some C source files under `src/` are adapted from [OpenZFS](https://github.com/openzfs/zfs) and retain their original CDDL license headers. Some definitions in pyzdb header files are derived from OpenZFS source and are noted in the file header comments.

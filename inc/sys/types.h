@@ -1,3 +1,9 @@
+/*
+ * Some definitions in this file are derived from OpenZFS source code.
+ * OpenZFS is licensed under the Common Development and Distribution
+ * License (CDDL). See https://github.com/openzfs/zfs
+ */
+
 #ifndef __SPL_SYS_TYPES_H
 #define __SPL_SYS_TYPES_H
 

@@ -1,3 +1,9 @@
+/*
+ * Some definitions in this file are derived from OpenZFS source code.
+ * OpenZFS is licensed under the Common Development and Distribution
+ * License (CDDL). See https://github.com/openzfs/zfs
+ */
+
 #ifndef __SYS_ZFS_COMPRESS_H
 #define __SYS_ZFS_COMPRESS_H
 
