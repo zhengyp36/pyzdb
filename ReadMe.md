@@ -139,3 +139,13 @@ ZFS documentation and code explain parts of the system, but it is difficult to f
 pyzdb is MIT licensed. See [LICENSE](LICENSE).
 
 Some C source files under `src/` are adapted from [OpenZFS](https://github.com/openzfs/zfs) and retain their original CDDL license headers. Some definitions in pyzdb header files are derived from OpenZFS source and are noted in the file header comments.
+
+---
+
+## Discussion
+
+This project was introduced to the OpenZFS community here:
+
+[openzfs/zfs#18340 — pyzdb: a Python+C toolkit for exploring ZFS on-disk structures from raw block devices](https://github.com/openzfs/zfs/discussions/18340)
+
+Feedback and questions are welcome in that thread.
